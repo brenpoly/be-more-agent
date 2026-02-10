@@ -131,18 +131,10 @@ You can modify the hardware behavior and personality in `config.json`.
     "text_model": "gemma3:1b",
     "vision_model": "moondream",
     "voice_model": "piper/en_GB-semaine-medium.onnx",
-    "system_prompt": (
-        "You are a helpful robot assistant running on a Raspberry Pi. "
-        "You have access to the following tools. To use one, reply ONLY with the JSON format shown:\n\n"
-        "1. Check Time: {\"action\": \"get_time\"}\n"
-        "2. Take Photo: {\"action\": \"capture_image\"}\n"
-        "3. Search Web: {\"action\": \"search_web\", \"query\": \"your search term\"}\n\n"
-        "If no tool is needed, just reply normally. Keep responses short and friendly."
-    ),
+    "system_prompt": "You are a helpful robot assistant running on a Raspberry Pi. You have access to the following tools. To use one, reply ONLY with the JSON format shown:\n\n1. Check Time: {\"action\": \"get_time\"}\n2. Take Photo: {\"action\": \"capture_image\"}\n3. Search Web: {\"action\": \"search_web\", \"query\": \"your search term\"}\n\nIf no tool is needed, just reply normally. Keep responses short and friendly.",
     "chat_memory": true,
     "camera_rotation": 180
 }
-```
 
 ---
 
