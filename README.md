@@ -7,6 +7,9 @@ This project turns a Raspberry Pi into a fully functional, conversational AI rob
 
 **It is designed as a blank canvas:** You provide the "Character Pack" (images and sounds) to give it a personality (e.g., a retro computer, a happy robot, or a spooky ghost).
 
+**Example**
+[![Watch the video](https://img.youtube.com/vi/l5ggH-YhuAw/maxresdefault.jpg)](https://youtu.be/l5ggH-YhuAw)
+
 ## ✨ Features
 
 * **100% Local Intelligence**: Powered by **Ollama** (LLM) and **Whisper.cpp** (Speech-to-Text). No API fees, no cloud data usage.
@@ -20,7 +23,8 @@ This project turns a Raspberry Pi into a fully functional, conversational AI rob
 ## 🛠️ Hardware Requirements
 
 * **Raspberry Pi 5** (Recommended).
-* USB Microphone
+* USB Microphone & Speakers
+* LCD display
 
 ---
 
