@@ -1,0 +1,8 @@
+{
+    "text_model": "gemma3:1b",
+    "vision_model": "moondream",
+    "voice_model": "piper/en_GB-semaine-medium.onnx",
+    "system_prompt": "You are a helpful robot assistant.",
+    "chat_memory": true,
+    "camera_rotation": 180
+}
