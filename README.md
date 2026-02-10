@@ -61,7 +61,7 @@ pi-local-assistant/
 ### Option 1: Quick Install (Recommended)
 1.  **Clone the repository:**
     ```bash
-    git clone [https://github.com/brenpoly/be-more-agent.git](https://github.com/brenpoly/be-more-agent.git)
+    git clone https://github.com/brenpoly/be-more-agent.git
     cd be-more-agent
     ```
 
