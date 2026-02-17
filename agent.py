@@ -66,7 +66,8 @@ DEFAULT_CONFIG = {
     "chat_memory": True,
     "camera_rotation": 0,
     "system_prompt_extras": "",
-    "input_device": None
+    "input_device": None,
+    "input_sample_rate": None
 }
 
 # LLM SETTINGS
@@ -126,6 +127,31 @@ if INPUT_DEVICE_NAME is not None:
         print(f"[AUDIO] Using input device: {device_info.get('name', INPUT_DEVICE_NAME)}", flush=True)
     except Exception:
         print(f"[AUDIO] Using input device index: {INPUT_DEVICE_NAME}", flush=True)
+
+def choose_input_samplerate(device, preferred=None):
+    candidates = []
+    if preferred:
+        candidates.append(preferred)
+    try:
+        device_info = sd.query_devices(device)
+        if "default_samplerate" in device_info:
+            candidates.append(int(device_info["default_samplerate"]))
+    except Exception:
+        pass
+
+    candidates.extend([48000, 44100, 32000, 16000])
+    seen = set()
+    for rate in candidates:
+        if not rate or rate in seen:
+            continue
+        seen.add(rate)
+        try:
+            sd.check_input_settings(device=device, samplerate=rate, channels=1, dtype="int16")
+            return rate
+        except Exception:
+            continue
+
+    return int(candidates[0]) if candidates else 44100
 
 class BotStates:
     IDLE = "idle"             
@@ -546,14 +572,9 @@ class BotGUI:
 
         CHUNK_SIZE = 1280
         OWW_SAMPLE_RATE = 16000
-        
-        try:
-            device_info = sd.query_devices(kind='input')
-            native_rate = int(device_info['default_samplerate'])
-        except: native_rate = 48000
-            
-        use_resampling = (native_rate != OWW_SAMPLE_RATE)
-        input_rate = native_rate if use_resampling else OWW_SAMPLE_RATE
+
+        input_rate = choose_input_samplerate(INPUT_DEVICE_NAME, CURRENT_CONFIG.get("input_sample_rate"))
+        use_resampling = (input_rate != OWW_SAMPLE_RATE)
         input_chunk_size = int(CHUNK_SIZE * (input_rate / OWW_SAMPLE_RATE)) if use_resampling else CHUNK_SIZE
 
         try:
@@ -588,10 +609,7 @@ class BotGUI:
     def record_voice_adaptive(self, filename="input.wav"):
         print("Recording (Adaptive)...", flush=True)
         time.sleep(0.5) 
-        try:
-            device_info = sd.query_devices(kind='input')
-            samplerate = int(device_info['default_samplerate'])
-        except: samplerate = 44100 
+        samplerate = choose_input_samplerate(INPUT_DEVICE_NAME, CURRENT_CONFIG.get("input_sample_rate"))
 
         silence_threshold = 0.006
         silence_duration = 1.5
@@ -629,10 +647,7 @@ class BotGUI:
     def record_voice_ptt(self, filename="input.wav"):
         print("Recording (PTT)...", flush=True)
         time.sleep(0.5)
-        try:
-            device_info = sd.query_devices(kind='input')
-            samplerate = int(device_info['default_samplerate'])
-        except: samplerate = 44100 
+        samplerate = choose_input_samplerate(INPUT_DEVICE_NAME, CURRENT_CONFIG.get("input_sample_rate"))
 
         buffer = []
         def callback(indata, frames, time_info, status): buffer.append(indata.copy())
