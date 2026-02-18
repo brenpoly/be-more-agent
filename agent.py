@@ -114,6 +114,7 @@ def resolve_input_device(config):
 
     requested_lower = str(requested).lower()
     for idx, dev in enumerate(devices):
+        print(f"[AUDIO DEBUG] Index {idx}: {dev.get('name')} (In: {dev.get('max_input_channels')})", flush=True) # DEBUG LINE
         if dev.get("max_input_channels", 0) > 0 and requested_lower in dev.get("name", "").lower():
             return idx
 
