@@ -593,12 +593,32 @@ class BotGUI:
                     data, _ = stream.read(input_chunk_size)
                     audio_data = np.frombuffer(data, dtype=np.int16)
 
+                    # Ensure flattening for openwakeword compatibility
+                    if audio_data.ndim > 1:
+                        audio_data = audio_data.flatten()
+
                     if use_resampling:
-                         audio_data = scipy.signal.resample(audio_data, CHUNK_SIZE).astype(np.int16)
+                        # Convert to float for better resampling quality, then back to int16
+                        # This avoids integer overflow/underflow issues during interpolation
+                        float_data = audio_data.astype(np.float32)
+                        resampled = scipy.signal.resample(float_data, CHUNK_SIZE)
+                        # Clip to int16 range to prevent overflow noise
+                        audio_data = np.clip(resampled, -32768, 32767).astype(np.int16)
+
+                    # Debug volume occasionally
+                    current_max = np.max(np.abs(audio_data))
+                    if current_max < 100:
+                         # Very quiet, might need mic boost
+                         pass 
 
                     prediction = self.oww_model.predict(audio_data)
                     for mdl in self.oww_model.prediction_buffer.keys():
-                        if list(self.oww_model.prediction_buffer[mdl])[-1] > WAKE_WORD_THRESHOLD:
+                        score = list(self.oww_model.prediction_buffer[mdl])[-1]
+                        if score > 0.1: # Show potential triggers
+                            print(f"\r[Oww] Score: {score:.3f} | Vol: {current_max}   ", end="", flush=True)
+
+                        if score > WAKE_WORD_THRESHOLD:
+                            print(f"\n[WAKE] Triggered on '{mdl}' with score: {score:.2f}", flush=True)
                             self.oww_model.reset() 
                             return "WAKE"
         except Exception as e:
