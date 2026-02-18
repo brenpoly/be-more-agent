@@ -721,11 +721,17 @@ class BotGUI:
             else: silent_chunks = 0
 
         try:
+            # Explicitly close stream if it exists to free hardware
+            sd.stop()
+            time.sleep(0.2)
+            
             with sd.InputStream(samplerate=samplerate, channels=1, callback=callback, 
                                 device=INPUT_DEVICE_NAME, blocksize=chunk_size): 
                 while not silence_started and recorded_chunks < max_chunks:
                     sd.sleep(int(chunk_duration * 1000))
-        except Exception as e: return None 
+        except Exception as e: 
+            print(f"[AUDIO ERROR] Adaptive Recording Failed: {e}", flush=True)
+            return None 
         
         return self.save_audio_buffer(buffer, filename, samplerate)
 
@@ -738,9 +744,17 @@ class BotGUI:
         def callback(indata, frames, time_info, status): buffer.append(indata.copy())
         
         try:
+            # Explicitly close stream if it exists to free hardware
+            # This is critical on Pi 5 where hardware contention causes freezes
+            sd.stop() 
+            time.sleep(0.2)
+            
             with sd.InputStream(samplerate=samplerate, channels=1, callback=callback, device=INPUT_DEVICE_NAME):
-                while self.recording_active.is_set(): sd.sleep(50)
-        except Exception as e: return None
+                while self.recording_active.is_set(): 
+                    sd.sleep(50)
+        except Exception as e: 
+            print(f"[AUDIO ERROR] PTT Recording Failed: {e}", flush=True)
+            return None
             
         return self.save_audio_buffer(buffer, filename, samplerate)
 
