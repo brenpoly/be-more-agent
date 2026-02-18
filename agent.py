@@ -616,12 +616,22 @@ class BotGUI:
         return "WAKE"
 
     def _listen_loop(self, stream_args, input_chunk_size, target_chunk_size, use_resampling):
+        # Force software backend (no mmap) via environment variable if possible, 
+        # but here we can try to hint loop settings.
+        # However, the most effective fix for ALSA mmap issues is often just asking for 'blocksize=0' 
+        # and letting portaudio manage the buffering, OR very small chunks.
+        
+        # Let's try to be less aggressive with reads.
+        
          with sd.InputStream(**stream_args) as stream:
                 print(f"[AUDIO] Listening with rate {stream_args['samplerate']} and block {stream_args['blocksize']}", flush=True)
+                
+                # Pre-allocate buffer for speed
+                # If blocksize is 0, we read what is available.
+                
                 while True:
                     if self.ptt_event.is_set():
                         self.ptt_event.clear()
-                        # raise to exit loop and return PTT
                         raise StopIteration("PTT")
 
                     rlist, _, _ = select.select([sys.stdin], [], [], 0.001)
@@ -629,10 +639,20 @@ class BotGUI:
                         sys.stdin.readline()
                         raise StopIteration("CLI")
 
-                    data, overflow = stream.read(input_chunk_size)
-                    if overflow:
-                        print("!", end="", flush=True) # Input overflow warning
-                        
+                    # If fallback mode (blocksize 0), read fixed amount
+                    read_size = input_chunk_size
+                    if stream_args.get('blocksize') == 0:
+                        read_size = 1024 # Safe small read
+                    
+                    try:
+                        data, overflow = stream.read(read_size)
+                        if overflow:
+                            print("!", end="", flush=True) 
+                            continue # Skip processing this chunk if we are falling behind!
+                    except Exception as e:
+                        print(f"[AUDIO] Read Error: {e}", flush=True)
+                        break
+
                     audio_data = np.frombuffer(data, dtype=np.int16)
 
                     # Ensure flattening for openwakeword compatibility
