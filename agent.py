@@ -640,11 +640,12 @@ class BotGUI:
                         audio_data = audio_data.flatten()
 
                     if use_resampling:
-                        # Convert to float for better resampling quality, then back to int16
-                        float_data = audio_data.astype(np.float32)
-                        resampled = scipy.signal.resample(float_data, target_chunk_size)
-                        audio_data = np.clip(resampled, -32768, 32767).astype(np.int16)
-
+                        # FAST RESAMPLING: Nearest-neighbor slicing instead of scipy.signal.resample
+                        # This avoids the CPU bottleneck that causes overflow (!!!!!!!) on Raspberry Pi
+                        step = len(audio_data) / target_chunk_size
+                        indices = np.arange(0, len(audio_data), step)[:target_chunk_size].astype(int)
+                        audio_data = audio_data[indices]
+                    
                     # Debug volume occasionally
                     current_max = np.max(np.abs(audio_data))
                     
