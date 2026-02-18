@@ -650,8 +650,8 @@ class BotGUI:
                             print("!", end="", flush=True) 
                             continue # Skip processing this chunk if we are falling behind!
                     except Exception as e:
-                        print(f"[AUDIO] Read Error: {e}", flush=True)
-                        break
+                        # Re-raise to trigger the fallback logic in the caller
+                        raise e
 
                     audio_data = np.frombuffer(data, dtype=np.int16)
 
