@@ -657,11 +657,6 @@ class BotGUI:
                         if score > WAKE_WORD_THRESHOLD:
                             print(f"\n[WAKE] Triggered on '{mdl}' with score: {score:.2f}", flush=True)
                             self.oww_model.reset() 
-                            # We found it, but we are inside a helper function
-                            # We need to signal success.
-                            # Since we can't easily return from inside the helper to the outer function 
-                            # without logic, we will raise a custom exception or just return?
-                            # _listen_loop is a helper. Let's make it return.
                             return # Success
 
 
