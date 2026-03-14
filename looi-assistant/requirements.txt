@@ -1,0 +1,20 @@
+# Core AI
+google-generativeai>=0.8.0
+
+# Voice input
+SpeechRecognition>=3.10.0
+sounddevice>=0.4.6
+
+# Audio output
+gTTS>=2.5.0
+pygame>=2.5.0
+
+# Audio processing
+numpy>=1.24.0
+scipy>=1.11.0
+
+# Vision / face tracking
+opencv-python>=4.8.0
+
+# Web search
+duckduckgo-search>=6.0.0
