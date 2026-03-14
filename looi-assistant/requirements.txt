@@ -1,5 +1,5 @@
 # Core AI
-google-generativeai>=0.8.0
+google-genai>=1.0.0
 
 # Voice input
 SpeechRecognition>=3.10.0

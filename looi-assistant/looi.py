@@ -45,7 +45,8 @@ except Exception:
     _CV2 = False
 
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types as genai_types
     _GENAI = True
 except Exception:
     _GENAI = False
@@ -218,8 +219,12 @@ def load_config():
 
 CONFIG = load_config()
 
+_genai_client = None
 if _GENAI and CONFIG["gemini_api_key"]:
-    genai.configure(api_key=CONFIG["gemini_api_key"])
+    try:
+        _genai_client = genai.Client(api_key=CONFIG["gemini_api_key"])
+    except Exception as _ex:
+        print(f"[Looi] Gemini client init: {_ex}")
 
 SYSTEM_PROMPT = """You are Looi, a warm, playful AI desktop companion inspired by the Looi robot.
 Your personality: friendly, curious, expressive, like a loyal little robot friend.
@@ -305,16 +310,8 @@ class LooiGUI:
         # ── Chat history ─────────────────────────────────────────────────────
         self._history = self._load_history()
 
-        # ── Gemini model ─────────────────────────────────────────────────────
-        self._model = None
-        if _GENAI and CONFIG["gemini_api_key"]:
-            try:
-                self._model = genai.GenerativeModel(
-                    CONFIG["gemini_model"],
-                    system_instruction=SYSTEM_PROMPT
-                )
-            except Exception as ex:
-                print(f"[Looi] Gemini init: {ex}")
+        # ── Gemini client ─────────────────────────────────────────────────────
+        self._client = _genai_client
 
         # ── Keybindings ──────────────────────────────────────────────────────
         root.bind("<Escape>",   lambda _e: self._safe_exit())
@@ -606,9 +603,11 @@ class LooiGUI:
 
     def _warmup(self):
         self.set_state(S.WARMUP)
-        if self._model:
+        if self._client:
             try:
-                self._model.generate_content("Reply with only: Hello")
+                self._client.models.generate_content(
+                    model=CONFIG["gemini_model"],
+                    contents="Reply with only: Hello")
             except Exception as ex:
                 print(f"[Looi] Warmup error: {ex}")
         time.sleep(1.2)
@@ -785,7 +784,7 @@ class LooiGUI:
             self.set_state(S.IDLE)
             return
 
-        if not self._model:
+        if not self._client:
             msg = ("Gemini is not configured. "
                    "Please add your API key to config.json.")
             self._tts_queue.put(msg)
@@ -793,9 +792,16 @@ class LooiGUI:
             self.set_state(S.IDLE)
             return
 
+        model_id = CONFIG["gemini_model"]
         try:
-            chat = self._model.start_chat(history=list(self._history))
-            resp = chat.send_message(user_text)
+            chat = self._client.chats.create(
+                model=model_id,
+                config=genai_types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT
+                ),
+                history=list(self._history),
+            )
+            resp  = chat.send_message(user_text)
             reply = resp.text.strip()
         except Exception as ex:
             print(f"[Looi] Gemini error: {ex}")
@@ -886,11 +892,13 @@ class LooiGUI:
             return f"Search error: {ex}"
 
     def _suggest_music(self, mood_or_genre):
-        if self._model:
+        if self._client:
             try:
-                r = self._model.generate_content(
-                    f"Suggest 5 great songs for someone feeling or wanting: "
-                    f"'{mood_or_genre}'. Format: Artist — Song. Be brief.")
+                r = self._client.models.generate_content(
+                    model=CONFIG["gemini_model"],
+                    contents=(
+                        f"Suggest 5 great songs for someone feeling or wanting: "
+                        f"'{mood_or_genre}'. Format: Artist — Song. Be brief."))
                 return r.text.strip()
             except Exception:
                 pass
@@ -901,18 +909,19 @@ class LooiGUI:
             frame = self._cam_frame
         if frame is None:
             return "Camera not available."
-        if not (_GENAI and self._model and _CV2):
+        if not (self._client and _CV2):
             return "Vision model unavailable."
         try:
             _, buf = cv2.imencode(".jpg", frame)
-            b64 = base64.b64encode(buf.tobytes()).decode()
-            vm  = genai.GenerativeModel(CONFIG.get("vision_model",
-                                                     CONFIG["gemini_model"]))
-            resp = vm.generate_content([
-                "Look at this image. In 1–2 words, what emotion or mood "
-                "does the person appear to have? If no person, say 'no person'.",
-                {"mime_type": "image/jpeg", "data": b64}
-            ])
+            img_bytes = buf.tobytes()
+            resp = self._client.models.generate_content(
+                model=CONFIG.get("vision_model", CONFIG["gemini_model"]),
+                contents=[
+                    "Look at this image. In 1–2 words, what emotion or mood "
+                    "does the person appear to have? If no person, say 'no person'.",
+                    genai_types.Part.from_bytes(data=img_bytes,
+                                                mime_type="image/jpeg"),
+                ])
             mood = resp.text.strip().lower()
             self._apply_mood(mood)
             return f"The user appears to be: {mood}"
