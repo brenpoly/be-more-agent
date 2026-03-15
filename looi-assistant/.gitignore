@@ -1,0 +1,14 @@
+# User config (contains API keys — never commit)
+config.json
+
+# Runtime / generated
+__pycache__/
+*.pyc
+*.pyo
+venv/
+memory.json
+camera_capture.jpg
+
+# OS
+.DS_Store
+Thumbs.db
