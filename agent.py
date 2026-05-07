@@ -242,7 +242,7 @@ class BotGUI:
         
         # Mocks for headless mode
         self.status_var = type('Mock', (object,), {'set': lambda self, x: None, 'get': lambda self: ""})()
-        self.response_text = None
+        self.response_text = type('Mock', (object,), {'config': lambda self, **k: None, 'insert': lambda self, *a, **k: None, 'delete': lambda self, *a: None, 'see': lambda self, x: None})()
         self.background_label = type('Mock', (object,), {'config': lambda self, **k: None, 'place': lambda self, **k: None, 'place_forget': lambda self: None})()
         self.overlay_label = type('Mock', (object,), {'config': lambda self, **k: None, 'place': lambda self, **k: None, 'place_forget': lambda self: None})()
         
