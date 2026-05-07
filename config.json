@@ -1,4 +1,10 @@
 {
+  "brain_type": "openclaw",
+  "openclaw": {
+    "url": "http://mac-mini.ts.net:18789/v1/chat/completions",
+    "token": "your-secret-token",
+    "model": "openclaw:main"
+  },
   "text_model": "gemma3:1b",
   "vision_model": "moondream",
   "voice_model": "piper/en_GB-semaine-medium.onnx",

@@ -41,7 +41,11 @@ import scipy.signal
 # --- AI ENGINES ---
 import openwakeword
 from openwakeword.model import Model
-import ollama 
+try:
+    import ollama 
+except ImportError:
+    ollama = None
+import requests
 
 # --- WEB SEARCH (Using your working import) ---
 from duckduckgo_search import DDGS 
@@ -60,6 +64,12 @@ WAKE_WORD_THRESHOLD = 0.5
 INPUT_DEVICE_NAME = None
 
 DEFAULT_CONFIG = {
+    "brain_type": "ollama",
+    "openclaw": {
+        "url": "http://mac-mini.ts.net:18789/v1/chat/completions",
+        "token": "your-secret-token",
+        "model": "openclaw:main"
+    },
     "text_model": "gemma3:1b",
     "vision_model": "moondream",
     "voice_model": "piper/en_GB-semaine-medium.onnx",
@@ -156,6 +166,9 @@ def choose_input_samplerate(device, preferred=None):
 
     return int(candidates[0]) if candidates else 44100
 
+# Global flag for text-only mode
+TEXT_ONLY_MODE = "--text" in sys.argv
+
 class BotStates:
     IDLE = "idle"             
     LISTENING = "listening"   
@@ -244,20 +257,23 @@ class BotGUI:
         # --- WAKE WORD INITIALIZATION ---
         print("[INIT] Loading Wake Word...", flush=True)
         self.oww_model = None
-        if os.path.exists(WAKE_WORD_MODEL):
-            try:
-                self.oww_model = Model(wakeword_model_paths=[WAKE_WORD_MODEL])
-                print("[INIT] Wake Word Loaded.", flush=True)
-            except TypeError:
+        if not TEXT_ONLY_MODE:
+            if os.path.exists(WAKE_WORD_MODEL):
                 try:
-                    self.oww_model = Model(wakeword_models=[WAKE_WORD_MODEL])
-                    print("[INIT] Wake Word Loaded (New API).", flush=True)
+                    self.oww_model = Model(wakeword_model_paths=[WAKE_WORD_MODEL])
+                    print("[INIT] Wake Word Loaded.", flush=True)
+                except TypeError:
+                    try:
+                        self.oww_model = Model(wakeword_models=[WAKE_WORD_MODEL])
+                        print("[INIT] Wake Word Loaded (New API).", flush=True)
+                    except Exception as e:
+                        print(f"[CRITICAL] Failed to load model: {e}")
                 except Exception as e:
                     print(f"[CRITICAL] Failed to load model: {e}")
-            except Exception as e:
-                print(f"[CRITICAL] Failed to load model: {e}")
+            else:
+                print(f"[CRITICAL] Model not found: {WAKE_WORD_MODEL}")
         else:
-            print(f"[CRITICAL] Model not found: {WAKE_WORD_MODEL}")
+            print("[INIT] Text-only mode enabled. Skipping Wake Word.", flush=True)
 
         # GUI Setup
         self.background_label = tk.Label(master)
@@ -308,7 +324,8 @@ class BotGUI:
         self.save_chat_history()
         
         try:
-            ollama.generate(model=TEXT_MODEL, prompt="", keep_alive=0)
+            if ollama and CURRENT_CONFIG.get("brain_type") == "ollama":
+                ollama.generate(model=TEXT_MODEL, prompt="", keep_alive=0)
         except: pass
         try:
             sd.stop()
@@ -418,6 +435,7 @@ class BotGUI:
         self.master.after(0, _update)
 
     def append_to_text(self, text, newline=True):
+        if not self.master: return
         def _update():
             self.response_text.config(state=tk.NORMAL)
             if newline: 
@@ -431,6 +449,7 @@ class BotGUI:
         self.master.after(0, _update)
 
     def _stream_to_text(self, chunk):
+        if not self.master: return
         def update_text_stream():
             self.response_text.config(state=tk.NORMAL)
             self.response_text.insert(tk.END, chunk)
@@ -522,7 +541,13 @@ class BotGUI:
             self.tts_thread.start()
             
             while True:
-                trigger_source = self.detect_wake_word_or_ptt()
+                if TEXT_ONLY_MODE:
+                    print("\n[TEXT INPUT] Type your message: ", end="", flush=True)
+                    user_text = sys.stdin.readline().strip()
+                    if not user_text: continue
+                    trigger_source = "TEXT"
+                else:
+                    trigger_source = self.detect_wake_word_or_ptt()
                 if self.interrupted.is_set():
                     self.interrupted.clear()
                     self.set_state(BotStates.IDLE, "Resetting...")
@@ -536,13 +561,16 @@ class BotGUI:
                 else:
                     audio_file = self.record_voice_adaptive()
                 
-                if not audio_file: 
+                if trigger_source == "TEXT":
+                    pass # user_text already set
+                elif not audio_file: 
                     self.set_state(BotStates.IDLE, "Heard nothing.")
                     continue
+                else:
+                    user_text = self.transcribe_audio(audio_file)
                 
-                user_text = self.transcribe_audio(audio_file)
                 if not user_text:
-                    self.set_state(BotStates.IDLE, "Transcription empty.")
+                    self.set_state(BotStates.IDLE, "Input empty.")
                     continue
                 
                 self.append_to_text(f"YOU: {user_text}")
@@ -555,12 +583,19 @@ class BotGUI:
 
     def warm_up_logic(self):
         self.set_state(BotStates.WARMUP, "Warming up brains...")
-        try:
-            ollama.generate(model=TEXT_MODEL, prompt="", keep_alive=-1)
-        except Exception as e:
-            print(f"Failed to load {TEXT_MODEL}: {e}", flush=True)
+        if CURRENT_CONFIG.get("brain_type") == "ollama":
+            if ollama:
+                try:
+                    ollama.generate(model=TEXT_MODEL, prompt="", keep_alive=-1)
+                    print("Ollama models loaded.", flush=True)
+                except Exception as e:
+                    print(f"Failed to load {TEXT_MODEL}: {e}", flush=True)
+            else:
+                print("Ollama library not found, but brain_type is set to ollama!", flush=True)
+        else:
+            print(f"Using remote brain: {CURRENT_CONFIG.get('brain_type')}", flush=True)
+            
         self.play_sound(self.get_random_sound(greeting_sounds_dir))
-        print("Models loaded.", flush=True)
 
     def detect_wake_word_or_ptt(self):
         self.set_state(BotStates.IDLE, "Waiting...")
@@ -804,6 +839,57 @@ class BotGUI:
             print(f"Camera Error: {e}")
             return None
 
+    def get_brain_response(self, messages, model_to_use):
+        brain_type = CURRENT_CONFIG.get("brain_type", "ollama")
+        
+        if brain_type == "openclaw":
+            config = CURRENT_CONFIG.get("openclaw", {})
+            url = config.get("url")
+            token = config.get("token")
+            model = config.get("model", "openclaw:main")
+            
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "model": model,
+                "messages": messages,
+                "stream": True
+            }
+            
+            try:
+                response = requests.post(url, headers=headers, json=payload, stream=True, timeout=30)
+                response.raise_for_status()
+                
+                import json
+                for line in response.iter_lines():
+                    if line:
+                        line_text = line.decode('utf-8')
+                        if line_text.startswith("data: "):
+                            data_str = line_text[6:].strip()
+                            if data_str == "[DONE]":
+                                break
+                            try:
+                                data = json.loads(data_str)
+                                content = data['choices'][0]['delta'].get('content', '')
+                                if content:
+                                    yield {'message': {'content': content}}
+                            except Exception as e:
+                                print(f"OpenClaw parse error: {e}")
+            except Exception as e:
+                print(f"OpenClaw connection error: {e}")
+                raise e
+        else:
+            # Default to Ollama
+            if not ollama:
+                raise ImportError("Ollama library not installed")
+            
+            stream = ollama.chat(model=model_to_use, messages=messages, stream=True, options=OLLAMA_OPTIONS)
+            for chunk in stream:
+                yield chunk
+
     # =========================================================================
     # 5. CHAT & RESPOND
     # =========================================================================
@@ -835,7 +921,7 @@ class BotGUI:
         sentence_buffer = "" 
         
         try:
-            stream = ollama.chat(model=model_to_use, messages=messages, stream=True, options=OLLAMA_OPTIONS)
+            stream = self.get_brain_response(messages, model_to_use)
             
             is_action_mode = False
             
@@ -921,8 +1007,10 @@ class BotGUI:
                         self.set_state(BotStates.THINKING, "Reading...")
                         self.thinking_sound_active.set()
                         
-                        final_resp = ollama.chat(model=model_to_use, messages=summary_prompt, stream=False, options=OLLAMA_OPTIONS)
-                        final_text = final_resp['message']['content']
+                        final_resp_stream = self.get_brain_response(summary_prompt, model_to_use)
+                        final_text = ""
+                        for chunk in final_resp_stream:
+                            final_text += chunk['message']['content']
                         
                         self.thinking_sound_active.clear()
                         self.set_state(BotStates.SPEAKING, "Speaking...", cam_path=img_path)
@@ -963,7 +1051,10 @@ class BotGUI:
         clean = re.sub(r"[^\w\s,.!?:-]", "", text)
         if not clean.strip(): return
         
-        print(f"[PIPER SPEAKING] '{clean}'", flush=True)
+        print(f"[BOT RESPONSE] '{clean}'", flush=True)
+        if TEXT_ONLY_MODE:
+            return
+        
         voice_model = CURRENT_CONFIG.get("voice_model", "piper/en_GB-semaine-medium.onnx")
         
         try:
@@ -1035,6 +1126,7 @@ class BotGUI:
         return None
 
     def play_sound(self, file_path):
+        if TEXT_ONLY_MODE: return
         if not file_path or not os.path.exists(file_path): return
         try:
             with wave.open(file_path, 'rb') as wf:
@@ -1076,6 +1168,29 @@ class BotGUI:
 
 if __name__ == "__main__":
     print("--- SYSTEM STARTING ---", flush=True)
-    root = tk.Tk()
-    app = BotGUI(root)
-    root.mainloop()
+    
+    if TEXT_ONLY_MODE:
+        # Check if we can/should run with GUI
+        try:
+            root = tk.Tk()
+            app = BotGUI(root)
+            root.mainloop()
+        except Exception as e:
+            print(f"[INFO] Running in pure CLI mode (No GUI): {e}")
+            # Mock root for headless operation
+            class MockRoot:
+                def after(self, ms, func): 
+                    # For headless, we just run it in a thread or immediately
+                    threading.Thread(target=func, daemon=True).start()
+                def title(self, t): pass
+                def attributes(self, *args): pass
+                def bind(self, *args): pass
+            
+            app = BotGUI(MockRoot())
+            # Keep main thread alive
+            while True:
+                time.sleep(1)
+    else:
+        root = tk.Tk()
+        app = BotGUI(root)
+        root.mainloop()

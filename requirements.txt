@@ -6,3 +6,4 @@ onnxruntime
 ollama
 duckduckgo-search
 Pillow
+requests

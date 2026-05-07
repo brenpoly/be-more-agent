@@ -65,13 +65,26 @@ pip install --upgrade pip
 pip install --force-reinstall --no-cache-dir sounddevice
 pip install -r requirements.txt
 
-# 6. Pull AI Models
+# 6. AI Models (Conditional)
 echo -e "${YELLOW}[6/6] Checking AI Models...${NC}"
-if command -v ollama &> /dev/null; then
-    ollama pull gemma3:1b
-    ollama pull moondream
+if [ "$(grep -o '"brain_type": "openclaw"' config.json)" == '"brain_type": "openclaw"' ]; then
+    echo -e "${GREEN}✅ Brain type set to OpenClaw. Skipping local model pulls.${NC}"
 else
-    echo -e "${RED}❌ Ollama not found. Please install it manually.${NC}"
+    if command -v ollama &> /dev/null; then
+        echo -e "${YELLOW}Pulling local models...${NC}"
+        ollama pull gemma3:1b
+        ollama pull moondream
+    else
+        echo -e "${YELLOW}Ollama not found. If you want to run locally, please install it.${NC}"
+    fi
+fi
+
+# 7. Tailscale Check
+if ! command -v tailscale &> /dev/null; then
+    echo -e "${YELLOW}Tailscale not found. Required for remote OpenClaw connection.${NC}"
+    echo -e "Install with: ${GREEN}curl -fsSL https://tailscale.com/install.sh | sh${NC}"
+else
+    echo -e "${GREEN}✅ Tailscale is installed.${NC}"
 fi
 
 # 7. OpenWakeWord Model (Added this back so the user has a default)
