@@ -243,6 +243,8 @@ class BotGUI:
         # Mocks for headless mode
         self.status_var = type('Mock', (object,), {'set': lambda self, x: None, 'get': lambda self: ""})()
         self.response_text = None
+        self.background_label = type('Mock', (object,), {'config': lambda self, **k: None, 'place': lambda self, **k: None, 'place_forget': lambda self: None})()
+        self.overlay_label = type('Mock', (object,), {'config': lambda self, **k: None, 'place': lambda self, **k: None, 'place_forget': lambda self: None})()
         
         self.permanent_memory = self.load_chat_history()
         self.session_memory = []
