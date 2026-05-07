@@ -240,6 +240,10 @@ class BotGUI:
         self.current_frame_index = 0
         self.current_overlay_image = None
         
+        # Mocks for headless mode
+        self.status_var = type('Mock', (object,), {'set': lambda self, x: None, 'get': lambda self: ""})()
+        self.response_text = None
+        
         self.permanent_memory = self.load_chat_history()
         self.session_memory = []
         self.thinking_sound_active = threading.Event()
@@ -307,7 +311,6 @@ class BotGUI:
             self.update_animation() 
         else:
             print("[INFO] GUI widgets skipped (Headless Mode)", flush=True)
-            self.response_text = None # Handled in append_to_text
         
         threading.Thread(target=self.safe_main_execution, daemon=True).start()
 
