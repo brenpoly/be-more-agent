@@ -39,8 +39,8 @@ import numpy as np
 import scipy.signal 
 
 # --- AI ENGINES ---
-import openwakeword
-from openwakeword.model import Model
+openwakeword = None
+Model = None
 try:
     import ollama 
 except ImportError:
@@ -258,6 +258,15 @@ class BotGUI:
         print("[INIT] Loading Wake Word...", flush=True)
         self.oww_model = None
         if not TEXT_ONLY_MODE:
+            print("[INIT] Loading AI Engines...", flush=True)
+            global openwakeword, Model
+            try:
+                import openwakeword
+                from openwakeword.model import Model
+            except ImportError as e:
+                print(f"[CRITICAL] AI Engines missing: {e}")
+                return
+
             if os.path.exists(WAKE_WORD_MODEL):
                 try:
                     self.oww_model = Model(wakeword_model_paths=[WAKE_WORD_MODEL])
