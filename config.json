@@ -1,7 +1,7 @@
 {
   "brain_type": "openclaw",
   "openclaw": {
-    "url": "http://mac-mini.ts.net:18789/v1/chat/completions",
+    "url": "http://giangs-mac-mini.tail9529eb.ts.net:18789/v1/chat/completions",
     "token": "your-secret-token",
     "model": "openclaw:main"
   },
