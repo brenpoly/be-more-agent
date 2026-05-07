@@ -227,8 +227,10 @@ class BotGUI:
         master.bind('<Escape>', self.exit_fullscreen)
         
         # Inputs
-        master.bind('<Return>', self.handle_ptt_toggle)
-        master.bind('<space>', self.handle_speaking_interrupt)
+        if hasattr(master, 'bind'):
+            master.bind('<Return>', self.handle_ptt_toggle)
+            master.bind('<space>', self.handle_speaking_interrupt)
+        
         atexit.register(self.safe_exit)
         
         # State
@@ -284,24 +286,28 @@ class BotGUI:
         else:
             print("[INIT] Text-only mode enabled. Skipping Wake Word.", flush=True)
 
-        # GUI Setup
-        self.background_label = tk.Label(master)
-        self.background_label.place(x=0, y=0, width=self.BG_WIDTH, height=self.BG_HEIGHT)
-        self.background_label.bind('<Button-1>', self.toggle_hud_visibility) 
-        
-        self.overlay_label = tk.Label(master, bg='black')
-        self.overlay_label.bind('<Button-1>', self.toggle_hud_visibility)
-        
-        self.response_text = tk.Text(master, height=6, width=60, wrap=tk.WORD, 
-                                     state=tk.DISABLED, bg="#ffffff", fg="#000000", font=('Arial', 12)) 
-        
-        self.status_var = tk.StringVar(value="Initializing...")
-        self.status_label = ttk.Label(master, textvariable=self.status_var, background="#2e2e2e", foreground="white")
-        
-        self.exit_button = ttk.Button(master, text="Exit & Save", command=self.safe_exit)
+        # GUI Setup (Skip if master is MockRoot or headless)
+        if hasattr(master, 'tk'):
+            self.background_label = tk.Label(master)
+            self.background_label.place(x=0, y=0, width=self.BG_WIDTH, height=self.BG_HEIGHT)
+            self.background_label.bind('<Button-1>', self.toggle_hud_visibility) 
+            
+            self.overlay_label = tk.Label(master, bg='black')
+            self.overlay_label.bind('<Button-1>', self.toggle_hud_visibility)
+            
+            self.response_text = tk.Text(master, height=6, width=60, wrap=tk.WORD, 
+                                         state=tk.DISABLED, bg="#ffffff", fg="#000000", font=('Arial', 12)) 
+            
+            self.status_var = tk.StringVar(value="Initializing...")
+            self.status_label = ttk.Label(master, textvariable=self.status_var, background="#2e2e2e", foreground="white")
+            
+            self.exit_button = ttk.Button(master, text="Exit & Save", command=self.safe_exit)
 
-        self.load_animations()
-        self.update_animation() 
+            self.load_animations()
+            self.update_animation() 
+        else:
+            print("[INFO] GUI widgets skipped (Headless Mode)", flush=True)
+            self.response_text = None # Handled in append_to_text
         
         threading.Thread(target=self.safe_main_execution, daemon=True).start()
 
