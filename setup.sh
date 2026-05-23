@@ -75,9 +75,19 @@ else
 fi
 
 # 7. OpenWakeWord Model (Added this back so the user has a default)
+# The old `raw/main/...` path 404s since openWakeWord v0.6.0 removed bundled
+# model files from the repo. Prefer the copy that ships inside the installed
+# `openwakeword` pip package; fall back to the v0.5.1 release asset.
 if [ ! -f "wakeword.onnx" ]; then
-    echo -e "${YELLOW}Downloading default 'Hey Jarvis' wake word...${NC}"
-    curl -L -o wakeword.onnx https://github.com/dscripka/openWakeWord/raw/main/openwakeword/resources/models/hey_jarvis_v0.1.onnx
+    echo -e "${YELLOW}Installing default 'Hey Jarvis' wake word from openwakeword package...${NC}"
+    OWW_MODEL="$(./venv/bin/python -c 'import openwakeword,os;print(os.path.join(os.path.dirname(openwakeword.__file__),"resources/models/hey_jarvis_v0.1.onnx"))' 2>/dev/null)"
+    if [ -n "$OWW_MODEL" ] && [ -f "$OWW_MODEL" ]; then
+        cp "$OWW_MODEL" wakeword.onnx
+    else
+        echo -e "${YELLOW}openwakeword bundle not found, attempting network fallback...${NC}"
+        curl -fL --retry 3 -o wakeword.onnx https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/hey_jarvis_v0.1.onnx \
+            || { rm -f wakeword.onnx; echo -e "${YELLOW}Wake-word model not installed; agent.py will run without wake detection.${NC}"; }
+    fi
 fi
 
 echo -e "${GREEN}✨ Setup Complete! Run 'source venv/bin/activate' then 'python agent.py'${NC}"
