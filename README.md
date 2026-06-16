@@ -103,6 +103,8 @@ python agent.py
 
 You can modify the hardware behavior and personality in `config.json`. The `agent.py` script creates this on the first run if it doesn't exist, but you can create it manually:
 
+For the sleep-focused Chinese companion flow in this fork, see the dedicated prompt guide: [睡前情绪梳理 Prompt 说明文档](docs/PROMPT_GUIDE.md).
+
 ```json
 {
     "text_model": "gemma3:1b",

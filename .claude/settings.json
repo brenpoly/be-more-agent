@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(\"----- last commit -----\")",
+      "PowerShell(\"----- branch vs remote -----\")",
+      "PowerShell(\"HEAD:        \" + \\(git rev-parse HEAD\\); \"origin/main: \" + \\(git rev-parse origin/main\\))",
+      "PowerShell(git add config.json config.py requirements.txt)",
+      "Bash(python -m py_compile agent.py config.py)",
+      "Bash(python -c \"import json; print\\('sherpa_num_threads =', json.load\\(open\\('config.json'\\)\\)['sherpa_num_threads']\\)\")",
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
+    ]
+  }
+}

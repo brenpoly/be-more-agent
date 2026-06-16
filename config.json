@@ -1,11 +1,37 @@
 {
   "text_model": "gemma3:1b",
-  "vision_model": "moondream",
-  "voice_model": "piper/en_GB-semaine-medium.onnx",
+  "voice_model": "piper/zh_CN-huayan-medium.onnx",
+  "tts_engine": "sherpa",
+  "sherpa_model_dir": "sherpa-models/vits-zh-aishell3",
+  "sherpa_speaker_id": 0,
+  "sherpa_speed": 1.0,
+  "sherpa_num_threads": 4,
   "chat_memory": true,
-  "camera_rotation": 180,
-  "system_prompt": "You are a helpful robot assistant running on a Raspberry Pi. You have access to the following tools. To use one, reply ONLY with the JSON format shown:\n\n1. Check Time: {\"action\": \"get_time\"}\n2. Take Photo: {\"action\": \"capture_image\"}\n3. Search Web: {\"action\": \"search_web\", \"query\": \"your search term\"}\n\nIf no tool is needed, just reply normally. Keep responses short and friendly.",
+  "system_prompt": "你是一个睡前陪伴机器人，帮用户在睡前梳理情绪。说话温和、简短，每次回应不超过两句话。只负责接住用户当下这一句，不出主意、不深挖、不在睡前帮用户解决烦心事；用户提到烦心事就先“寄存”——记下了，明天再想。",
   "system_prompt_extras": "",
   "input_device": null,
-  "input_sample_rate": 44100
+  "input_sample_rate": 44100,
+  "whisper_model": "ggml-base.bin",
+  "whisper_lang": "zh",
+  "vad_aggressiveness": 3,
+  "vad_start_ms": 150,
+  "vad_silence_ms": 900,
+  "vad_max_record_ms": 30000,
+  "vad_preroll_ms": 300,
+
+  "sleep_flow": {
+    "max_chat_rounds": 5,
+    "silence_timeout_chat": 75,
+    "audio_type": "white_noise",
+    "audio_types": ["white_noise", "light_music", "meditation"],
+    "shutdown_timeout": 2700,
+    "shutdown_enabled": false,
+    "cache_dir": "cache",
+    "pre_synthesize_texts": {
+      "greeting": "晚上好，今天过得怎么样？有什么想说的吗？",
+      "transition": "好的，已经记下了。现在让我们慢慢放松，准备休息吧。",
+      "soft_close": "如果你没什么想说的了，我们就开始放松吧。",
+      "round5_close": "我们先到这里，准备休息吧。"
+    }
+  }
 }
