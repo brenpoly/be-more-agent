@@ -35,15 +35,39 @@ def _synthesize_sample():
         print(f"  (sample synthesis skipped: {e})")
         return None
 
-def test_stt():
-    cfg = load_config()
+def _transcribe_faster_whisper(wav, cfg):
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError:
+        return None, "faster-whisper not installed"
+    model_name = cfg.get("faster_whisper_model", "base.en")
+    print(f"  Loading faster_whisper '{model_name}' (first run may download)...")
+    model = WhisperModel(model_name, device="cpu", compute_type="int8", cpu_threads=4)
+    segments, _ = model.transcribe(wav, language="en", beam_size=1)
+    text = "".join(s.text for s in segments).strip()
+    return text, None
+
+def _transcribe_whisper_cpp(wav, cfg):
     binary = cfg.get("whisper_binary", "whisper.cpp/build/bin/whisper-cli.exe")
     model_path = cfg.get("whisper_model", "whisper.cpp/models/ggml-base.en.bin")
-
     if not os.path.exists(binary):
-        return result("Whisper binary exists", False, binary)
+        return None, f"binary missing: {binary}"
     if not os.path.exists(model_path):
-        return result("Whisper model exists", False, model_path)
+        return None, f"model missing: {model_path}"
+    r = subprocess.run(
+        [binary, "-m", model_path, "-l", "en", "-t", "4", "-f", wav],
+        capture_output=True, text=True, timeout=180
+    )
+    lines = [l for l in r.stdout.strip().splitlines() if l.strip()]
+    tail = lines[-1] if lines else ""
+    if r.returncode != 0 or not tail:
+        return None, f"whisper-cli rc={r.returncode}"
+    text = tail.split("]")[1].strip() if "]" in tail else tail.strip()
+    return text, None
+
+def test_stt():
+    cfg = load_config()
+    engine = cfg.get("stt_engine", "faster_whisper")
 
     test_wav = os.path.join(os.path.dirname(__file__), "test_sample.wav")
     if not os.path.exists(test_wav):
@@ -53,16 +77,22 @@ def test_stt():
         return True
 
     try:
-        r = subprocess.run(
-            [binary, "-m", model_path, "-l", "en", "-t", "4", "-f", test_wav],
-            capture_output=True, text=True, timeout=180
-        )
-        lines = [l for l in r.stdout.strip().splitlines() if l.strip()]
-        tail = lines[-1] if lines else ""
-        print(f"  Whisper: {tail[:80]}")
-        return result("Whisper transcribes sample", r.returncode == 0 and len(tail) > 0, f"rc={r.returncode}")
+        if engine == "whisper_cpp":
+            text, err = _transcribe_whisper_cpp(test_wav, cfg)
+            label = f"STT ({engine})"
+            if err:
+                return result(label, False, err)
+            print(f"  Whisper: {text[:80]}")
+            return result(label, len(text) > 0, f"transcribed: {text[:40]}")
+        else:
+            text, err = _transcribe_faster_whisper(test_wav, cfg)
+            label = f"STT ({engine})"
+            if err:
+                return result(label, False, err)
+            print(f"  faster_whisper: {text[:80]}")
+            return result(label, len(text) > 0, f"transcribed: {text[:40]}")
     except Exception as e:
-        return result("Whisper transcribe", False, str(e))
+        return result(f"STT ({engine})", False, str(e))
 
 if __name__ == "__main__":
     sys.exit(0 if test_stt() else 1)

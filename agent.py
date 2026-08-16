@@ -71,6 +71,8 @@ DEFAULT_CONFIG = {
     "text_model": "gemma3:1b",
     "vision_model": "moondream",
     "voice_model": "piper/en_GB-semaine-medium.onnx",
+    "stt_engine": "faster_whisper",   # "faster_whisper" (in-process, faster) or "whisper_cpp" (subprocess)
+    "faster_whisper_model": "base.en",
     "whisper_binary": "whisper.cpp/build/bin/whisper-cli.exe",
     "whisper_model": "whisper.cpp/models/ggml-base.en.bin",
     "piper_binary": "piper/piper.exe",
@@ -272,6 +274,10 @@ class BotGUI:
         self.tts_active = threading.Event()
         self.current_audio_process = None 
         self.exiting = False
+        
+        # --- STT (faster_whisper lazy init) ---
+        self.fw_model = None
+        self.fw_load_lock = threading.Lock()
         
         # --- WAKE WORD INITIALIZATION ---
         print("[INIT] Loading Wake Word...", flush=True)
@@ -808,26 +814,64 @@ class BotGUI:
         self.play_sound(self.get_random_sound(ack_sounds_dir))
         return filename
 
-    def transcribe_audio(self, filename):
-        print("Transcribing...", flush=True)
+    def _get_fw_model(self):
+        """Lazily load and cache the faster_whisper model (thread-safe)."""
+        if self.fw_model is None:
+            with self.fw_load_lock:
+                if self.fw_model is None:
+                    try:
+                        from faster_whisper import WhisperModel
+                    except ImportError:
+                        raise RuntimeError("faster-whisper not installed. Run: venv\\Scripts\\pip install faster-whisper")
+                    model_name = CURRENT_CONFIG.get("faster_whisper_model", "base.en")
+                    print(f"[INIT] Loading faster_whisper '{model_name}' (first run may download)...", flush=True)
+                    self.fw_model = WhisperModel(
+                        model_name, device="cpu", compute_type="int8", cpu_threads=4
+                    )
+                    print("[INIT] faster_whisper loaded.", flush=True)
+        return self.fw_model
+
+    def _transcribe_faster_whisper(self, filename):
+        model = self._get_fw_model()
+        try:
+            segments, info = model.transcribe(filename, language="en", beam_size=1)
+            text = "".join(s.text for s in segments).strip()
+        except Exception as e:
+            raise RuntimeError(f"faster_whisper transcription failed: {e}")
+        if not text:
+            return ""
+        # Whisper emits tokens like [BLANK_AUDIO] / [NO_SPEECH] / [MUSIC] for silence — ignore them.
+        if re.fullmatch(r"\[[^\]]+\]", text):
+            return ""
+        return text
+
+    def _transcribe_whisper_cpp(self, filename):
         whisper_binary = CURRENT_CONFIG.get("whisper_binary", "whisper.cpp/build/bin/whisper-cli.exe")
         whisper_model = CURRENT_CONFIG.get("whisper_model", "whisper.cpp/models/ggml-base.en.bin")
+        result = subprocess.run(
+            [whisper_binary, "-m", whisper_model, "-l", "en", "-t", "4", "-f", filename],
+            capture_output=True, text=True
+        )
+        transcription_lines = result.stdout.strip().split('\n')
+        if transcription_lines and transcription_lines[-1].strip():
+            last_line = transcription_lines[-1].strip()
+            if ']' in last_line: transcription = last_line.split("]")[1].strip()
+            else: transcription = last_line
+        else: transcription = ""
+        transcription = transcription.strip()
+        # Whisper emits tokens like [BLANK_AUDIO] / [NO_SPEECH] / [MUSIC] for silence — ignore them.
+        if re.fullmatch(r"\[[^\]]+\]", transcription):
+            transcription = ""
+        return transcription
+
+    def transcribe_audio(self, filename):
+        print("Transcribing...", flush=True)
+        engine = CURRENT_CONFIG.get("stt_engine", "faster_whisper")
         try:
-            result = subprocess.run(
-                [whisper_binary, "-m", whisper_model, "-l", "en", "-t", "4", "-f", filename],
-                capture_output=True, text=True
-            )
-            transcription_lines = result.stdout.strip().split('\n')
-            if transcription_lines and transcription_lines[-1].strip():
-                last_line = transcription_lines[-1].strip()
-                if ']' in last_line: transcription = last_line.split("]")[1].strip()
-                else: transcription = last_line
-            else: transcription = ""
-            transcription = transcription.strip()
-            # Whisper emits tokens like [BLANK_AUDIO] / [NO_SPEECH] / [MUSIC] for silence — ignore them.
-            import re as _re
-            if _re.fullmatch(r"\[[^\]]+\]", transcription):
-                transcription = ""
+            if engine == "faster_whisper":
+                transcription = self._transcribe_faster_whisper(filename)
+            else:
+                transcription = self._transcribe_whisper_cpp(filename)
             print(f"Heard: '{transcription}'", flush=True)
             return transcription
         except Exception as e:

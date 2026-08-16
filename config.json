@@ -2,6 +2,8 @@
   "text_model": "gemma3:1b",
   "vision_model": "moondream",
   "voice_model": "piper/en_GB-semaine-medium.onnx",
+  "stt_engine": "faster_whisper",
+  "faster_whisper_model": "base.en",
   "whisper_binary": "whisper.cpp/build/bin/whisper-cli.exe",
   "whisper_model": "whisper.cpp/models/ggml-base.en.bin",
   "piper_binary": "piper/piper.exe",

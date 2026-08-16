@@ -9,7 +9,8 @@ This project turns a Windows PC into a fully functional, conversational AI agent
 
 ## ✨ Features
 
-* **100% Local Intelligence**: Powered by **Ollama** (LLM) and **Whisper.cpp** (Speech-to-Text). No API fees, no cloud data usage.
+* **100% Local Intelligence**: Powered by **Ollama** (LLM) and **Whisper** (Speech-to-Text). No API fees, no cloud data usage.
+* **Fast Speech-to-Text**: Switchable STT backend — **faster-whisper** (in-process, ~2.7x faster) or **whisper.cpp** (subprocess).
 * **Open Source Wake Word**: Wakes up to your custom model using **OpenWakeWord** (Offline & Free). No access keys required.
 * **Smart Web Search**: Uses DuckDuckGo to find real-time news and information when the LLM doesn't know the answer.
 * **Reactive Faces**: The GUI updates the character's face based on its state (Listening, Thinking, Speaking, Idle).
@@ -87,6 +88,7 @@ python tests\test_record.py              # records 3s of mic audio
 
 Each prints `[PASS]`/`[FAIL]` and exits with code `0`/`1` so you can script them.
 `tests\test_stt.py` auto-generates its own spoken sample via Piper when possible.
+`tests\test_ollama.py` additionally checks your graphics hardware and reports whether the LLM will run on the GPU or fall back to the CPU.
 
 ---
 
@@ -99,6 +101,8 @@ You can modify the hardware behavior and personality in `config.json`:
     "text_model": "gemma3:1b",
     "vision_model": "moondream",
     "voice_model": "piper/en_GB-semaine-medium.onnx",
+    "stt_engine": "faster_whisper",
+    "faster_whisper_model": "base.en",
     "whisper_binary": "whisper.cpp/build/bin/whisper-cli.exe",
     "whisper_model": "whisper.cpp/models/ggml-base.en.bin",
     "piper_binary": "piper/piper.exe",
@@ -112,6 +116,10 @@ You can modify the hardware behavior and personality in `config.json`:
     "input_sample_rate": 44100
 }
 ```
+
+* `stt_engine`: `"faster_whisper"` (default) or `"whisper_cpp"`.
+  * **`faster_whisper`** — in-process, model stays loaded in RAM, ~2.7x faster transcription per utterance (measured: ~0.7s vs ~1.8s for a 3s clip). Model is downloaded from Hugging Face on first run (cached offline afterwards) and set with `faster_whisper_model` (e.g. `base.en`, `small.en`).
+  * **`whisper_cpp`** — uses the `whisper-cli.exe` subprocess. No extra Python deps, works fully offline, slightly slower due to per-utterance process/model startup.
 
 * `input_device`: `null` = auto-detect your default microphone. Set a device **index** or **name** to force one.
 * `input_sample_rate`: your mic's native rate (the agent falls back to 16k/44.1k/48k automatically).
@@ -143,6 +151,23 @@ During `setup_windows.ps1`, you can choose to download the compiled `.onnx` mode
    ```json
    "voice_model": "voices/bmo-custom.onnx"
    ```
+
+---
+
+## 🖥️ Hardware & GPU Compatibility
+
+Every component except the LLM runs on the **CPU** (Whisper.cpp, Piper TTS, OpenWakeWord, OpenCV), so the agent works on any Windows PC. Only **Ollama** (`gemma3:1b` + `moondream`) benefits from a dedicated GPU.
+
+| Hardware | Behavior |
+|---|---|
+| **iGPU only** (Intel UHD/Iris Xe, AMD Radeon integrated) | Works. Ollama falls back to CPU — the small 1B model stays responsive, but the Moondream vision model is slow. |
+| **iGPU + NVIDIA dGPU** | Best performance. Ollama auto-detects CUDA and offloads both models to VRAM. |
+| **iGPU + AMD dGPU** | Works, but Ollama's native Windows AMD support is limited — expect CPU fallback (or use the Vulkan backend / WSL2). |
+| **iGPU + Intel Arc dGPU** | Works, but stock Ollama ignores Intel GPUs on Windows (CPU fallback) unless IPEX-LLM is configured. |
+
+> **Hybrid laptops (Intel iGPU + NVIDIA):** Windows may launch Ollama on the iGPU. Force the dGPU in **Settings → System → Display → Graphics** (set Ollama to *High performance*), then verify with `ollama ps` — it should show `GPU`, not `100% CPU`.
+
+Run `python tests\test_ollama.py` to see your GPU status and whether the LLM is actually using it.
 
 ---
 

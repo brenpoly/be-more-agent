@@ -7,3 +7,4 @@ ollama
 ddgs
 Pillow
 opencv-python
+faster-whisper
