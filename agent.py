@@ -1,6 +1,6 @@
 # =========================================================================
 #  Be More Agent 🤖
-#  A Local, Offline-First AI Agent for Raspberry Pi
+#  A Local, Offline-First AI Agent for Windows
 #
 #  Copyright (c) 2026 brenpoly
 #  Licensed under the MIT License
@@ -21,30 +21,38 @@ import os
 import subprocess
 import random
 import re
-import sys
-import select
 import traceback
 import atexit
 import datetime
 import warnings
 import wave
-import struct 
+import tempfile
 
 # Suppress harmless library warnings
-warnings.filterwarnings("ignore", category=RuntimeWarning, module="duckduckgo_search")
+warnings.filterwarnings("ignore", category=RuntimeWarning, module="ddgs")
 
 # Core dependencies
 import sounddevice as sd
 import numpy as np
-import scipy.signal 
+import scipy.signal
 
 # --- AI ENGINES ---
 import openwakeword
 from openwakeword.model import Model
-import ollama 
+import ollama
 
-# --- WEB SEARCH (Using your working import) ---
-from duckduckgo_search import DDGS 
+# --- WEB SEARCH ---
+from ddgs import DDGS
+
+# --- CAMERA (webcam via OpenCV) ---
+try:
+    import cv2
+    HAS_CV2 = True
+except ImportError:
+    HAS_CV2 = False
+
+# --- WINDOWS AUDIO PLAYBACK ---
+import winsound
 
 # =========================================================================
 # 1. CONFIGURATION & CONSTANTS
@@ -54,7 +62,7 @@ CONFIG_FILE = "config.json"
 MEMORY_FILE = "memory.json"
 BMO_IMAGE_FILE = "current_image.jpg"
 WAKE_WORD_MODEL = "./wakeword.onnx"
-WAKE_WORD_THRESHOLD = 0.5
+WAKE_WORD_THRESHOLD = 0.6
 
 # HARDWARE SETTINGS
 INPUT_DEVICE_NAME = None
@@ -63,8 +71,14 @@ DEFAULT_CONFIG = {
     "text_model": "gemma3:1b",
     "vision_model": "moondream",
     "voice_model": "piper/en_GB-semaine-medium.onnx",
+    "whisper_binary": "whisper.cpp/build/bin/whisper-cli.exe",
+    "whisper_model": "whisper.cpp/models/ggml-base.en.bin",
+    "piper_binary": "piper/piper.exe",
+    "piper_rate": 22050,
     "chat_memory": True,
     "camera_rotation": 0,
+    "camera_index": 0,
+    "fullscreen": False,
     "system_prompt_extras": "",
     "input_device": None,
     "input_sample_rate": None
@@ -135,7 +149,8 @@ def choose_input_samplerate(device, preferred=None):
         candidates.append(preferred)
     try:
         device_info = sd.query_devices(device)
-        print(f"[AUDIO DEBUG] Device Info: {device_info}", flush=True) # DEBUG
+        if device is not None:
+            print(f"[AUDIO] Using device: {device_info.get('name')} @ {device_info.get('default_samplerate')}Hz", flush=True)
         if "default_samplerate" in device_info:
             candidates.append(int(device_info["default_samplerate"]))
     except Exception as e:
@@ -166,13 +181,18 @@ class BotStates:
     WARMUP = "warmup"       
 
 # --- SYSTEM PROMPT ---
-BASE_SYSTEM_PROMPT = """You are a helpful robot assistant running on a Raspberry Pi.
+BASE_SYSTEM_PROMPT = """You are a helpful robot assistant.
 Personality: Cute, helpful, robot.
 Style: Short sentences. Enthusiastic.
 
-INSTRUCTIONS:
-- If the user asks for a physical action (time, search, photo), output JSON.
-- If the user just wants to chat, reply with NORMAL TEXT.
+RULES:
+- ALWAYS reply in NORMAL TEXT. Almost every question is a friendly conversation answer it directly.
+- ONLY output JSON when the user asks for ONE of these exact tools:
+  1. Current time -> {"action": "get_time", "value": "now"}
+  2. Search the web/news -> {"action": "search_web", "value": "<search term>"}
+  3. Take a photo / see -> {"action": "capture_image", "value": "environment"}
+- Never invent other JSON actions (like get_capital, compare, get_location, respond).
+- If you are not sure whether to use a tool, just answer conversationally in a few words.
 
 ### EXAMPLES ###
 
@@ -187,6 +207,15 @@ You: {"action": "search_web", "value": "robots news"}
 
 User: What do you see right now?
 You: {"action": "capture_image", "value": "environment"}
+
+User: What is the capital of Nepal?
+You: The capital of Nepal is Kathmandu!
+
+User: Which has more protein, egg or meat?
+You: Chicken breast has more protein per gram than eggs, but eggs are still a great source!
+
+User: Why do people drink milk?
+You: People drink milk for calcium, protein, and it tastes nice with cereal!
 
 ### END EXAMPLES ###
 """
@@ -209,8 +238,11 @@ class BotGUI:
 
     def __init__(self, master):
         self.master = master
-        master.title("Pi Assistant")
-        master.attributes('-fullscreen', True) 
+        master.title("BMO Assistant")
+        if CURRENT_CONFIG.get("fullscreen", False):
+            master.attributes('-fullscreen', True)
+        else:
+            master.geometry(f"{self.BG_WIDTH}x{self.BG_HEIGHT}")
         master.bind('<Escape>', self.exit_fullscreen)
         
         # Inputs
@@ -244,9 +276,12 @@ class BotGUI:
         # --- WAKE WORD INITIALIZATION ---
         print("[INIT] Loading Wake Word...", flush=True)
         self.oww_model = None
+        self._ensure_oww_models()
         if os.path.exists(WAKE_WORD_MODEL):
             try:
                 self.oww_model = Model(wakeword_model_paths=[WAKE_WORD_MODEL])
+                if self.oww_model is None:
+                    raise RuntimeError("Model returned None")
                 print("[INIT] Wake Word Loaded.", flush=True)
             except TypeError:
                 try:
@@ -281,6 +316,18 @@ class BotGUI:
         threading.Thread(target=self.safe_main_execution, daemon=True).start()
 
     # --- HELPERS ---
+
+    def _ensure_oww_models(self):
+        try:
+            from openwakeword.utils import download_models
+            import pathlib
+            resource_dir = os.path.join(pathlib.Path(openwakeword.__file__).parent.resolve(), "resources", "models")
+            melspec = os.path.join(resource_dir, "melspectrogram.onnx")
+            if not os.path.exists(melspec):
+                print("[INIT] Downloading OpenWakeWord feature models...", flush=True)
+                download_models()
+        except Exception as e:
+            print(f"[WARN] Could not ensure OpenWakeWord models: {e}", flush=True)
 
     def extract_json_from_text(self, text):
         try:
@@ -510,6 +557,21 @@ class BotGUI:
 
         return None
 
+    def _chat_fallback(self, user_text):
+        """Re-prompt the LLM to answer normally when it emitted a bad/unknown tool-call."""
+        try:
+            messages = [
+                {"role": "system", "content": "Answer the user's question directly in one or two short, friendly sentences. Do not use JSON."},
+                {"role": "user", "content": user_text}
+            ]
+            resp = ollama.chat(model=TEXT_MODEL, messages=messages, stream=False, options=OLLAMA_OPTIONS)
+            text = (resp.get("message") or {}).get("content", "").strip()
+            if text:
+                return text
+        except Exception as e:
+            print(f"[FALLBACK ERROR] {e}", flush=True)
+        return "I am not sure how to do that, but you can ask me something else!"
+
     # =========================================================================
     # 4. CORE LOGIC
     # =========================================================================
@@ -616,79 +678,55 @@ class BotGUI:
         return "WAKE"
 
     def _listen_loop(self, stream_args, input_chunk_size, target_chunk_size, use_resampling):
-        # Force software backend (no mmap) via environment variable if possible, 
-        # but here we can try to hint loop settings.
-        # However, the most effective fix for ALSA mmap issues is often just asking for 'blocksize=0' 
-        # and letting portaudio manage the buffering, OR very small chunks.
-        
-        # Let's try to be less aggressive with reads.
-        
-         with sd.InputStream(**stream_args) as stream:
-                print(f"[AUDIO] Listening with rate {stream_args['samplerate']} and block {stream_args['blocksize']}", flush=True)
-                
-                # Pre-allocate buffer for speed
-                # If blocksize is 0, we read what is available.
-                
-                while True:
-                    if self.ptt_event.is_set():
-                        self.ptt_event.clear()
-                        raise StopIteration("PTT")
+        with sd.InputStream(**stream_args) as stream:
+            print(f"[AUDIO] Listening with rate {stream_args['samplerate']} and block {stream_args['blocksize']}", flush=True)
 
-                    rlist, _, _ = select.select([sys.stdin], [], [], 0.001)
-                    if rlist: 
-                        sys.stdin.readline()
-                        raise StopIteration("CLI")
+            while True:
+                if self.ptt_event.is_set():
+                    self.ptt_event.clear()
+                    raise StopIteration("PTT")
 
-                    # If fallback mode (blocksize 0), read fixed amount
-                    read_size = input_chunk_size
-                    if stream_args.get('blocksize') == 0:
-                        read_size = 1024 # Safe small read
-                    
-                    try:
-                        data, overflow = stream.read(read_size)
-                        if overflow:
-                            print("!", end="", flush=True) 
-                            # If we overflow excessively, raise error to trigger fallback to SAFE MODE (PulseAudio/Software)
-                            # We can use a simple counter attached to the function or object, but here raising immediately 
-                            # after a few in a row is safest.
-                            raise RuntimeError("Audio Buffer Overflow - Triggering Safe Mode")
-                    except Exception as e:
-                        # Convert uncatchable PaErrorCode wrapper to standard Exception if needed
-                        # But honestly, `raise e` should work... unless it's a SystemExit?
-                        # Let's wrap it in a new exception to be sure it bubbles up
-                        raise RuntimeError(f"Audio read failed: {e}")
+                # If fallback mode (blocksize 0), read fixed amount
+                read_size = input_chunk_size
+                if stream_args.get('blocksize') == 0:
+                    read_size = 1024 # Safe small read
 
-                    audio_data = np.frombuffer(data, dtype=np.int16)
+                try:
+                    data, overflow = stream.read(read_size)
+                    if overflow:
+                        print("!", end="", flush=True)
+                        raise RuntimeError("Audio Buffer Overflow - Triggering Safe Mode")
+                except Exception as e:
+                    raise RuntimeError(f"Audio read failed: {e}")
 
-                    # Ensure flattening for openwakeword compatibility
-                    if audio_data.ndim > 1:
-                        audio_data = audio_data.flatten()
+                audio_data = np.frombuffer(data, dtype=np.int16)
 
-                    if use_resampling:
-                        # FAST RESAMPLING: Nearest-neighbor slicing instead of scipy.signal.resample
-                        # This avoids the CPU bottleneck that causes overflow (!!!!!!!) on Raspberry Pi
-                        step = len(audio_data) / target_chunk_size
-                        indices = np.arange(0, len(audio_data), step)[:target_chunk_size].astype(int)
-                        audio_data = audio_data[indices]
-                    
-                    # Convert to float for model prediction without needing heavy resampling logic
-                    # The wake word model needs 16000, which we just faked above.
-                    
-                    # Debug volume occasionally
-                    current_max = np.max(np.abs(audio_data))
-                    
-                    # Only predict if volume is significant to save CPU
-                    if current_max > 200: 
-                        prediction = self.oww_model.predict(audio_data)
-                        for mdl in self.oww_model.prediction_buffer.keys():
-                            score = list(self.oww_model.prediction_buffer[mdl])[-1]
-                            if score > 0.1: # Show potential triggers
-                                print(f"\r[Oww] Score: {score:.3f} | Vol: {current_max}   ", end="", flush=True)
+                # Ensure flattening for openwakeword compatibility
+                if audio_data.ndim > 1:
+                    audio_data = audio_data.flatten()
 
-                            if score > WAKE_WORD_THRESHOLD:
-                                print(f"\n[WAKE] Triggered on '{mdl}' with score: {score:.2f}", flush=True)
-                                self.oww_model.reset() 
-                                return # Success
+                if use_resampling:
+                    # FAST RESAMPLING: Nearest-neighbor slicing instead of scipy.signal.resample
+                    # This avoids the CPU bottleneck that causes overflow on slow hardware
+                    step = len(audio_data) / target_chunk_size
+                    indices = np.arange(0, len(audio_data), step)[:target_chunk_size].astype(int)
+                    audio_data = audio_data[indices]
+
+                # The wake word model needs 16000, which we just faked above.
+                current_max = np.max(np.abs(audio_data))
+
+                # Only predict if volume is significant to save CPU
+                if current_max > 200:
+                    prediction = self.oww_model.predict(audio_data)
+                    for mdl in self.oww_model.prediction_buffer.keys():
+                        score = list(self.oww_model.prediction_buffer[mdl])[-1]
+                        if score > 0.1: # Show potential triggers
+                            print(f"\r[Oww] Score: {score:.3f} | Vol: {current_max}   ", end="", flush=True)
+
+                        if score > WAKE_WORD_THRESHOLD:
+                            print(f"\n[WAKE] Triggered on '{mdl}' with score: {score:.2f}", flush=True)
+                            self.oww_model.reset()
+                            return # Success
 
 
     def record_voice_adaptive(self, filename="input.wav"):
@@ -745,8 +783,7 @@ class BotGUI:
         
         try:
             # Explicitly close stream if it exists to free hardware
-            # This is critical on Pi 5 where hardware contention causes freezes
-            sd.stop() 
+            sd.stop()
             time.sleep(0.2)
             
             with sd.InputStream(samplerate=samplerate, channels=1, callback=callback, device=INPUT_DEVICE_NAME):
@@ -773,9 +810,11 @@ class BotGUI:
 
     def transcribe_audio(self, filename):
         print("Transcribing...", flush=True)
+        whisper_binary = CURRENT_CONFIG.get("whisper_binary", "whisper.cpp/build/bin/whisper-cli.exe")
+        whisper_model = CURRENT_CONFIG.get("whisper_model", "whisper.cpp/models/ggml-base.en.bin")
         try:
             result = subprocess.run(
-                ["./whisper.cpp/build/bin/whisper-cli", "-m", "./whisper.cpp/models/ggml-base.en.bin", "-l", "en", "-t", "4", "-f", filename],
+                [whisper_binary, "-m", whisper_model, "-l", "en", "-t", "4", "-f", filename],
                 capture_output=True, text=True
             )
             transcription_lines = result.stdout.strip().split('\n')
@@ -784,8 +823,13 @@ class BotGUI:
                 if ']' in last_line: transcription = last_line.split("]")[1].strip()
                 else: transcription = last_line
             else: transcription = ""
+            transcription = transcription.strip()
+            # Whisper emits tokens like [BLANK_AUDIO] / [NO_SPEECH] / [MUSIC] for silence — ignore them.
+            import re as _re
+            if _re.fullmatch(r"\[[^\]]+\]", transcription):
+                transcription = ""
             print(f"Heard: '{transcription}'", flush=True)
-            return transcription.strip()
+            return transcription
         except Exception as e:
             print(f"Transcription Error: {e}")
             return ""
@@ -793,11 +837,27 @@ class BotGUI:
     def capture_image(self):
         self.set_state(BotStates.CAPTURING, "Watching...")
         try:
-            subprocess.run(["rpicam-still", "-t", "500", "-n", "--width", "640", "--height", "480", "-o", BMO_IMAGE_FILE], check=True)
+            if HAS_CV2:
+                cam_index = int(CURRENT_CONFIG.get("camera_index", 0))
+                cam = cv2.VideoCapture(cam_index, cv2.CAP_DSHOW)
+                if not cam.isOpened():
+                    cam = cv2.VideoCapture(cam_index)
+                if not cam.isOpened():
+                    print(f"Camera Error: could not open webcam index {cam_index}")
+                    return None
+                ret, frame = cam.read()
+                cam.release()
+                if not ret:
+                    print("Camera Error: could not read webcam frame")
+                    return None
+                cv2.imwrite(BMO_IMAGE_FILE, frame)
+            else:
+                raise RuntimeError("No camera available. Install opencv-python.")
+
             rotation = CURRENT_CONFIG.get("camera_rotation", 0)
             if rotation != 0:
                 img = Image.open(BMO_IMAGE_FILE)
-                img = img.rotate(rotation, expand=True) 
+                img = img.rotate(rotation, expand=True)
                 img.save(BMO_IMAGE_FILE)
             return BMO_IMAGE_FILE
         except Exception as e:
@@ -889,12 +949,13 @@ class BotGUI:
                             return 
 
                     elif tool_result == "INVALID_ACTION":
-                        fallback_text = "I am not sure how to do that."
+                        fallback_text = self._chat_fallback(text)
                         self.thinking_sound_active.clear()
                         self.set_state(BotStates.SPEAKING, "Speaking...", cam_path=img_path)
                         self.append_to_text("BOT: ", newline=False)
                         self.append_to_text(fallback_text, newline=True)
                         with self.tts_queue_lock: self.tts_queue.append(fallback_text)
+                        self.session_memory.append({"role": "assistant", "content": fallback_text})
 
                     elif tool_result == "SEARCH_EMPTY":
                         fallback_text = "I searched, but I couldn't find any news about that."
@@ -965,10 +1026,12 @@ class BotGUI:
         
         print(f"[PIPER SPEAKING] '{clean}'", flush=True)
         voice_model = CURRENT_CONFIG.get("voice_model", "piper/en_GB-semaine-medium.onnx")
+        piper_binary = CURRENT_CONFIG.get("piper_binary", "piper/piper.exe")
+        piper_rate = int(CURRENT_CONFIG.get("piper_rate", 22050))
         
         try:
             self.current_audio_process = subprocess.Popen(
-                ["./piper/piper", "--model", voice_model, "--output-raw"], 
+                [piper_binary, "--model", voice_model, "--output-raw"], 
                 stdin=subprocess.PIPE, 
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL
@@ -983,15 +1046,14 @@ class BotGUI:
             except:
                 native_rate = 48000 
 
-            PIPER_RATE = 22050
             use_native_rate = False
             
             try:
-                sd.check_output_settings(device=None, samplerate=PIPER_RATE)
+                sd.check_output_settings(device=None, samplerate=piper_rate)
             except:
                 use_native_rate = True
 
-            with sd.RawOutputStream(samplerate=native_rate if use_native_rate else PIPER_RATE, 
+            with sd.RawOutputStream(samplerate=native_rate if use_native_rate else piper_rate, 
                                     channels=1, dtype='int16', 
                                     device=None, latency='low', blocksize=2048) as stream:
                 while True:
@@ -1003,7 +1065,7 @@ class BotGUI:
                     if len(audio_chunk) > 0:
                         self.current_volume = np.max(np.abs(audio_chunk))
                         if use_native_rate:
-                            num_samples = int(len(audio_chunk) * (native_rate / PIPER_RATE))
+                            num_samples = int(len(audio_chunk) * (native_rate / piper_rate))
                             audio_chunk = scipy.signal.resample(audio_chunk, num_samples).astype(np.int16)
                         stream.write(audio_chunk.tobytes())
                     else:

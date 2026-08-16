@@ -1,11 +1,9 @@
 # Be More Agent 🤖
-**A Customizable, Offline-First AI Agent for Raspberry Pi**
+**A Customizable, Offline-First AI Agent for Windows**
 
-[![Watch the Demo](https://img.youtube.com/vi/l5ggH-YhuAw/maxresdefault.jpg)](https://youtu.be/l5ggH-YhuAw)
+![Python](https://img.shields.io/badge/Python-3.9%2B-blue) ![Platform](https://img.shields.io/badge/Platform-Windows-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
-![Python](https://img.shields.io/badge/Python-3.9%2B-blue) ![Platform](https://img.shields.io/badge/Platform-Raspberry%20Pi-red) ![License](https://img.shields.io/badge/License-MIT-green)
-
-This project turns a Raspberry Pi into a fully functional, conversational AI agent. Unlike cloud-based assistants, this agent runs **100% locally** on your device. It listens for a wake word, processes speech, "thinks" using a local Large Language Model (LLM), and speaks back with a low-latency neural voice—all while displaying reactive face animations.
+This project turns a Windows PC into a fully functional, conversational AI agent. Unlike cloud-based assistants, this agent runs **100% locally** on your machine. It listens for a wake word, processes speech, "thinks" using a local Large Language Model (LLM), and speaks back with a low-latency neural voice—all while displaying reactive face animations.
 
 **It is designed as a blank canvas:** You can easily swap the face images and sound effects to create your own character!
 
@@ -13,18 +11,11 @@ This project turns a Raspberry Pi into a fully functional, conversational AI age
 
 * **100% Local Intelligence**: Powered by **Ollama** (LLM) and **Whisper.cpp** (Speech-to-Text). No API fees, no cloud data usage.
 * **Open Source Wake Word**: Wakes up to your custom model using **OpenWakeWord** (Offline & Free). No access keys required.
-* **Hardware-Aware Audio**: Automatically detects your microphone's sample rate and resamples audio on the fly to prevent ALSA errors.
 * **Smart Web Search**: Uses DuckDuckGo to find real-time news and information when the LLM doesn't know the answer.
 * **Reactive Faces**: The GUI updates the character's face based on its state (Listening, Thinking, Speaking, Idle).
-* **Fast Text-to-Speech**: Uses **Piper TTS** for low-latency, high-quality voice generation on the Pi.
-* **Vision Capable**: Can "see" and describe the world using a connected camera and the **Moondream** vision model.
-
-## 🛠️ Hardware Requirements
-
-* **Raspberry Pi 5** (Recommended) or Pi 4 (4GB RAM minimum)
-* USB Microphone & Speaker
-* LCD Screen (DSI or HDMI)
-* Raspberry Pi Camera Module
+* **Fast Text-to-Speech**: Uses **Piper TTS** for low-latency, high-quality voice generation.
+* **Vision Capable**: Can "see" and describe the world using your webcam and the **Moondream** vision model.
+* **Push-to-Talk Mode**: Delete/rename `wakeword.onnx` to use Enter-to-talk instead of the wake word.
 
 ---
 
@@ -33,10 +24,10 @@ This project turns a Raspberry Pi into a fully functional, conversational AI age
 ```text
 be-more-agent/
 ├── agent.py                   # The main brain script
-├── setup.sh                   # Auto-installer script
+├── setup_windows.ps1          # Auto-installer script (PowerShell)
+├── start_agent_windows.ps1    # Launcher
 ├── wakeword.onnx              # OpenWakeWord model (The "Ear")
 ├── config.json                # User settings (Models, Prompt, Hardware)
-├── chat_memory.json           # Conversation history
 ├── requirements.txt           # Python dependencies
 ├── whisper.cpp/               # Speech-to-Text engine
 ├── piper/                     # Piper TTS engine & voice models
@@ -45,74 +36,87 @@ be-more-agent/
 │   ├── thinking_sounds/       # Looping .wav files
 │   ├── ack_sounds/            # "I heard you" .wav files
 │   └── error_sounds/          # Error/Confusion .wav files
-└── faces/                     # Face images folder
-    ├── idle/                  # .png sequence for idle state
-    ├── listening/             # .png sequence for listening
-    ├── thinking/              # .png sequence for thinking
-    ├── speaking/              # .png sequence for speaking
-    ├── error/                 # .png sequence for errors
-    └── warmup/                # .png sequence for startup
+├── faces/                     # Face images folder
+│   ├── idle/                  # .png sequence for idle state
+│   ├── listening/             # .png sequence for listening
+│   ├── thinking/              # .png sequence for thinking
+│   ├── speaking/              # .png sequence for speaking
+│   ├── error/                 # .png sequence for errors
+│   └── warmup/                # .png sequence for startup
+└── tests/                     # Per-module verification scripts
 ```
 
 ---
 
-## 🚀 Installation
+## 🚀 Installation (Windows 11)
 
 ### 1. Prerequisites
-Ensure your Raspberry Pi OS is up to date.
-```bash
-sudo apt update && sudo apt upgrade -y
-sudo apt install git -y
-```
+1. **Python 3.10+** from [python.org](https://www.python.org/downloads/) — tick **"Add to PATH"** during install.
+2. **Ollama** for Windows from [ollama.com/download/windows](https://ollama.com/download/windows). Your NVIDIA GPU (CUDA) is used automatically.
 
-### 2. Install Ollama
-This agent relies on [Ollama](https://ollama.com) to run the brain.
-```bash
-curl -fsSL https://ollama.com/install.sh| sh
-```
-*Pull the required models:*
-```bash
-ollama pull gemma:2b
+### 2. Pull the AI models
+```powershell
+ollama pull gemma3:1b
 ollama pull moondream
 ```
 
-### 3. Clone & Setup
-```bash
-git clone https://github.com/brenpoly/be-more-agent.git
-cd be-more-agent
-chmod +x setup.sh
-./setup.sh
+### 3. One-shot setup
+Open **PowerShell** in the project folder and run:
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass; .\setup_windows.ps1
 ```
-*The setup script will install system libraries, create necessary folders, download Piper TTS, and set up the Python virtual environment.*
+This installs everything: the Python venv, whisper.cpp (with its runtime DLLs), the Whisper model, Piper TTS, the voice model, the default wake word, and all Python dependencies.
 
-### 4. Configure the Wake Word
-The setup script downloads a default wake word ("Hey Jarvis"). To use your own:
-1. Train a model at [OpenWakeWord](https://github.com/dscripka/openWakeWord).
-2. Place the `.onnx` file in the root folder.
-3. Rename it to `wakeword.onnx`.
-
-### 5. Run the Agent
-```bash
-source venv/bin/activate
-python agent.py
+### 4. Run the Agent
+```powershell
+.\start_agent_windows.ps1
 ```
+
+### 5. Verify each module
+```powershell
+python tests\run_all_tests.py            # run everything, one summary
+python tests\test_audio.py               # microphone + speaker devices
+python tests\test_wakeword.py            # wake-word model loads & predicts
+python tests\test_stt.py                 # whisper.cpp transcribes a sample
+python tests\test_tts.py                 # piper generates speech
+python tests\test_ollama.py              # LLM server + model responds
+python tests\test_search.py              # DuckDuckGo web search
+python tests\test_camera.py              # webcam captures a frame
+python tests\test_record.py              # records 3s of mic audio
+```
+
+Each prints `[PASS]`/`[FAIL]` and exits with code `0`/`1` so you can script them.
+`tests\test_stt.py` auto-generates its own spoken sample via Piper when possible.
 
 ---
 
 ## 📂 Configuration (`config.json`)
 
-You can modify the hardware behavior and personality in `config.json`. The `agent.py` script creates this on the first run if it doesn't exist, but you can create it manually:
+You can modify the hardware behavior and personality in `config.json`:
 
 ```json
 {
     "text_model": "gemma3:1b",
     "vision_model": "moondream",
     "voice_model": "piper/en_GB-semaine-medium.onnx",
+    "whisper_binary": "whisper.cpp/build/bin/whisper-cli.exe",
+    "whisper_model": "whisper.cpp/models/ggml-base.en.bin",
+    "piper_binary": "piper/piper.exe",
+    "piper_rate": 22050,
     "chat_memory": true,
     "camera_rotation": 0,
-    "system_prompt_extras": "You are a helpful robot assistant. Keep responses short and cute."
+    "camera_index": 0,
+    "fullscreen": false,
+    "system_prompt_extras": "You are a helpful robot assistant. Keep responses short and cute.",
+    "input_device": null,
+    "input_sample_rate": 44100
 }
 ```
+
+* `input_device`: `null` = auto-detect your default microphone. Set a device **index** or **name** to force one.
+* `input_sample_rate`: your mic's native rate (the agent falls back to 16k/44.1k/48k automatically).
+* `fullscreen`: set `true` for kiosk-style display.
+* `system_prompt_extras`: appended to the built-in system prompt to tune the personality.
 
 ---
 
@@ -124,45 +128,31 @@ This software is a generic framework. You can give it a new personality by repla
 2.  **Sounds:** Put multiple `.wav` files in the `sounds/[category]/` folders. The robot will pick one at random each time (e.g., different "thinking" hums or "error" buzzes).
 
 ---
+
 ## 🗣️ The Custom BMO Voice
 
-This project features a custom, locally fine-tuned text-to-speech model to make the agent sound authentic! 
+This project features a custom, locally fine-tuned text-to-speech model to make the agent sound authentic!
 
-When you run the `setup.sh` script, it will automatically download the compiled `.onnx` model and its `.json` configuration file from the [Releases page](https://github.com/brenpoly/be-more-agent/releases) and place them into a local `voices/` directory.
+During `setup_windows.ps1`, you can choose to download the compiled `.onnx` model and its `.json` configuration file from the [Releases page](https://github.com/brenpoly/be-more-agent/releases) into a local `voices/` directory.
 
-**Manual Installation (if you are not using setup.sh):**
-1. Download `bmo.onnx` and `bmo.onnx.json` from the [Latest Release](https://github.com/brenpoly/be-more-agent/releases).
+**Manual Installation:**
+1. Download `bmo.onnx` and `bmo.onnx.json` from the [v1.0-voice release](https://github.com/brenpoly/be-more-agent/releases/tag/v1.0-voice).
 2. Create a folder named `voices/` in the root directory of this repository.
 3. Place both downloaded files inside the `voices/` folder.
 4. Ensure your `config.json` file points to the new model:
    ```json
-   "voice_model": "voices/bmo.onnx"
+   "voice_model": "voices/bmo-custom.onnx"
+   ```
+
 ---
 
 ## ⚠️ Troubleshooting
 
-* **"No search library found":** If web search fails, ensure you are in the virtual environment and `duckduckgo-search` is installed via pip.
-* **Shutdown Errors:** When you exit the script (Ctrl+C), you might see `Expression 'alsa_snd_pcm_mmap_begin' failed`. **This is normal.** It just means the audio stream was cut off mid-sample. It does not affect the functionality.
-* **Audio Glitches:** If the voice sounds fast or slow, the script attempts to auto-detect sample rates. Ensure your `config.json` points to a valid `.onnx` voice model in the `piper/` folder.
-If your custom BMO voice sounds incredibly deep, slow, or "demonic," don't panic! This is not an issue with the Piper installation or the setup script. It is almost always caused by a **Sample Rate (Hz)** mismatch between the model and the audio player.
-
-Here is how to fix it:
-
-**Fix 1: Match the Sample Rate**
-By default, `agent.py` expects "medium" quality models and plays audio at 22050 Hz. If your custom model was trained at a different quality (like 48000 Hz or 16000 Hz), playing it at the default rate will stretch or compress the audio, severely altering the pitch.
-
-1. Open your model's configuration file (e.g., `voices/bmo.onnx.json`).
-2. Look for the `"sample_rate"` property and note the number (e.g., `22050`, `16000`, `48000`).
-3. Open `agent.py` and find the line: `PIPER_RATE = 22050`.
-4. Change that number to match the sample rate in your `.json` file.
-5. Save the file and restart the agent.
-
-**Fix 2: Check the Length Scale**
-If the sample rates match perfectly, the issue might be the model's internal pacing setting.
-
-1. Open your `voices/bmo.onnx.json` file.
-2. Look inside the `"inference"` block for a setting called `"length_scale"`. 
-3. Piper uses this to determine the speed of the voice. If this value is set significantly higher than `1.0`, it will stretch the audio and make BMO sound like a zombie. Lower it closer to `1.0` to speed the voice back up to normal.
+* **"No search library found":** Ensure you are in the virtual environment and `ddgs` is installed via pip (`venv\Scripts\pip install ddgs`).
+* **Whisper crashes at startup (exit code 0xC0000135):** The whisper.cpp DLLs are missing. Re-run `setup_windows.ps1` so it copies the full `Release/*` (including `whisper.dll`, `ggml.dll`, etc.) into `whisper.cpp\build\bin\`.
+* **No camera frames:** Check `camera_index` in `config.json` (your built-in webcam may not be index 0).
+* **Audio Glitches / Wrong Speed:** If the voice sounds fast or slow, ensure `piper_rate` in `config.json` matches your `.onnx` model's `"sample_rate"` (check its `.json` file). "Medium" Piper voices use 22050.
+* **Deeps/"demonic" BMO voice:** Sample-rate mismatch (see above) or the model's `"length_scale"` is set too high in `voices/bmo-custom.onnx.json` — lower it toward `1.0`.
 
 ## 📄 License
 This project is dual-licensed:
