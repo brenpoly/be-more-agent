@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import socket
 import sys
 import tempfile
 import threading
@@ -311,6 +312,34 @@ class AgentSearchTests(unittest.TestCase):
         self.assertEqual(self.dispatch(bot), 'SEARCH_CANCELLED')
         self.assertEqual(self.chat(bot), [])
         self.assertFalse(self.server.requests)
+
+    def test_slow_os_dns_does_not_delay_timeout_or_interruption(self):
+        def delayed_dns(*args, **kwargs):
+            time.sleep(0.6)
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('127.0.0.1', 443))]
+
+        agent.CURRENT_CONFIG['search_timeout_seconds'] = 0.1
+        bot = self.make_bot()
+        # Keep the real HTTPX/MCP transport; only OS name resolution is delayed.
+        # Cancellation completes before lookup returns, so no live search occurs.
+        with patch('httpx.AsyncClient', REAL_ASYNC_CLIENT), \
+                patch('socket.getaddrinfo', delayed_dns):
+            started = time.monotonic()
+            self.assertEqual(self.dispatch(bot), 'SEARCH_ERROR')
+            self.assertLess(time.monotonic() - started, 0.5)
+
+        agent.CURRENT_CONFIG['search_timeout_seconds'] = 15
+        bot = self.make_bot()
+        def interrupted_dns(*args, **kwargs):
+            threading.Timer(0.02, bot.interrupted.set).start()
+            return delayed_dns(*args, **kwargs)
+        with patch('httpx.AsyncClient', REAL_ASYNC_CLIENT), \
+                patch('socket.getaddrinfo', interrupted_dns):
+            started = time.monotonic()
+            self.assertEqual(self.dispatch(bot), 'SEARCH_CANCELLED')
+            self.assertLess(time.monotonic() - started, 0.5)
+        self.assertEqual(bot.tts_queue, [])
+        self.duck.assert_not_called()
 
     def test_real_conversation_creation_followups_reset_and_interleaving(self):
         first, second = self.make_bot(), self.make_bot()

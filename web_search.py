@@ -27,7 +27,17 @@ class SearchConversation:
         if (isinstance(timeout, bool) or not isinstance(timeout, (int, float))
                 or not math.isfinite(timeout) or not 0 < timeout <= 120):
             raise ValueError("search_timeout_seconds must be between 0 and 120")
-        return asyncio.run(self._controlled_search(query, interrupted, timeout))
+        # asyncio.run() waits for its default executor at shutdown, even after
+        # cancellation. An OS DNS lookup cannot be interrupted, so let it finish
+        # in the background instead of holding the voice-agent call open.
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(self._controlled_search(query, interrupted, timeout))
+        finally:
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            finally:
+                loop.close()
 
     async def _controlled_search(self, query, interrupted, timeout):
         import anyio
