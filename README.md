@@ -116,6 +116,47 @@ You can modify the hardware behavior and personality in `config.json`. The `agen
 
 ---
 
+### Optional Parallel web search
+
+DuckDuckGo remains the default search provider. To use
+[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp)
+instead, use Python 3.10 or newer, activate the agent's virtual environment,
+and install the optional dependency:
+
+```bash
+python -m pip install -r requirements-parallel.txt
+```
+
+Add these fields to your existing `config.json` and restart the agent:
+
+```json
+{
+    "search_provider": "parallel",
+    "search_timeout_seconds": 15
+}
+```
+
+Ask the agent to search the web as usual. Parallel searches need internet access
+and send your search query to `https://search.parallel.ai/mcp`. They require no
+account or API key and use Fast mode, subject to the service's anonymous usage
+limits. The existing local Ollama summarizer receives up to three result titles,
+excerpts and source URLs. Page fetching is not exposed as an agent action.
+
+Set `search_provider` to `"duckduckgo"` to restore the original news-first search,
+or `"disabled"` to prevent web searches. A Parallel error does not switch providers.
+`search_timeout_seconds` bounds a Parallel search including MCP connection and
+discovery (default 15 seconds, greater than 0 and at most 120). Press Space while
+the agent is thinking to cancel. Searches share an opaque conversation identifier
+until you say "reset memory" or "forget everything", or restart the agent.
+
+The optional provider's headless tests run without audio hardware or local models:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+---
+
 ## 🎨 Customizing Your Character
 
 This software is a generic framework. You can give it a new personality by replacing the assets:
