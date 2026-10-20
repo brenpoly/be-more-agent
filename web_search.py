@@ -30,7 +30,17 @@ class SearchConversation:
         return asyncio.run(self._controlled_search(query, interrupted, timeout))
 
     async def _controlled_search(self, query, interrupted, timeout):
-        task = asyncio.create_task(self._request(query, timeout))
+        import anyio
+
+        # Keep cancellation active during SDK teardown too. A single asyncio
+        # task.cancel() can be consumed before the SDK awaits its session DELETE.
+        scope = anyio.CancelScope()
+
+        async def request():
+            with scope:
+                return await self._request(query, timeout)
+
+        task = asyncio.create_task(request())
         deadline = asyncio.get_running_loop().time() + timeout
         try:
             while True:
@@ -46,7 +56,7 @@ class SearchConversation:
                     return task.result()
         finally:
             if not task.done():
-                task.cancel()
+                scope.cancel()
                 await asyncio.gather(task, return_exceptions=True)
 
     async def _request(self, query, timeout):

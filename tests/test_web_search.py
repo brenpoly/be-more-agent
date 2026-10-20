@@ -14,6 +14,7 @@ import tempfile
 import threading
 import time
 import unittest
+import uuid
 from unittest.mock import Mock, MagicMock, patch
 
 import httpx
@@ -57,9 +58,16 @@ class McpServer:
             'title': 'Robot news', 'url': RESULT_URL,
             'excerpts': ['A new robot uses a Raspberry Pi.'],
         }]
+        self.delete_delay = 0
 
     async def handle(self, request):
         self.requests.append(request)
+        # The live endpoint returns a session ID and supports session teardown.
+        if request.method == 'GET':
+            return httpx.Response(405)
+        if request.method == 'DELETE':
+            await asyncio.sleep(self.delete_delay)
+            return httpx.Response(204)
         data = json.loads(request.content)
         method = data['method']
         if method == self.delay_method:
@@ -104,10 +112,13 @@ class McpServer:
         else:
             raise AssertionError('Unexpected MCP method: ' + method)
         envelope = {'jsonrpc': '2.0', 'id': data['id'], 'result': result}
+        headers = {}
+        if method == 'initialize':
+            headers['mcp-session-id'] = str(uuid.uuid4())
         if self.sse:
-            return httpx.Response(200, headers={'content-type': 'text/event-stream'},
+            return httpx.Response(200, headers={**headers, 'content-type': 'text/event-stream'},
                                   text='event: message\ndata: ' + json.dumps(envelope) + '\n\n')
-        return httpx.Response(200, json=envelope)
+        return httpx.Response(200, headers=headers, json=envelope)
 
     def client(self, **kwargs):
         return REAL_ASYNC_CLIENT(transport=httpx.MockTransport(self.handle), **kwargs)
@@ -176,8 +187,9 @@ class AgentSearchTests(unittest.TestCase):
             'objective': QUERY, 'search_queries': [QUERY],
             'session_id': bot.search_conversation.session_id,
         })
-        self.assertEqual({json.loads(r.content)['method'] for r in self.server.requests},
+        self.assertEqual({json.loads(r.content)['method'] for r in self.server.requests if r.content},
                          {'initialize', 'notifications/initialized', 'tools/list', 'tools/call'})
+        self.assertIn('DELETE', [r.method for r in self.server.requests])
         for request in self.server.requests:
             self.assertEqual(str(request.url), PARALLEL_MCP_URL)
             self.assertEqual(request.headers['user-agent'], USER_AGENT)
@@ -272,6 +284,25 @@ class AgentSearchTests(unittest.TestCase):
         self.assertTrue(bot.interrupted.is_set())
         self.assertFalse(bot.thinking_sound_active.is_set())
         self.assertEqual(bot.tts_queue, [])
+        self.duck.assert_not_called()
+
+    def test_slow_stateful_teardown_cannot_extend_timeout_or_interruption(self):
+        self.server.delete_delay = 0.6
+        self.server.delay_method = 'tools/call'
+        agent.CURRENT_CONFIG['search_timeout_seconds'] = 0.1
+        started = time.monotonic()
+        self.assertEqual(self.dispatch(self.make_bot()), 'SEARCH_ERROR')
+        self.assertLess(time.monotonic() - started, 0.5)
+
+        self.server.delay_method = None
+        agent.CURRENT_CONFIG['search_timeout_seconds'] = 15
+        bot = self.make_bot()
+        self.server.cancel_bot = bot
+        started = time.monotonic()
+        self.assertEqual(self.chat(bot), [])
+        self.assertLess(time.monotonic() - started, 0.5)
+        self.assertEqual(bot.tts_queue, [])
+        self.assertTrue(bot.interrupted.is_set())
         self.duck.assert_not_called()
 
     def test_already_interrupted_action_never_sends_network_request(self):
