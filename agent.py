@@ -45,6 +45,7 @@ import ollama
 
 # --- WEB SEARCH (Using your working import) ---
 from duckduckgo_search import DDGS 
+from web_search import SearchConversation, SearchCancelled
 
 # =========================================================================
 # 1. CONFIGURATION & CONSTANTS
@@ -67,7 +68,9 @@ DEFAULT_CONFIG = {
     "camera_rotation": 0,
     "system_prompt_extras": "",
     "input_device": None,
-    "input_sample_rate": None
+    "input_sample_rate": None,
+    "search_provider": "duckduckgo",
+    "search_timeout_seconds": 15
 }
 
 # LLM SETTINGS
@@ -227,6 +230,7 @@ class BotGUI:
         
         self.permanent_memory = self.load_chat_history()
         self.session_memory = []
+        self.search_conversation = SearchConversation()
         self.thinking_sound_active = threading.Event()
         
         self.last_ptt_time = 0 
@@ -294,6 +298,7 @@ class BotGUI:
         if self.exiting:
             return
         self.exiting = True
+        self.interrupted.set()
         print("\n--- SHUTDOWN SEQUENCE ---", flush=True)
         if self.current_audio_process:
             try:
@@ -469,6 +474,27 @@ class BotGUI:
             return f"The current time is {now}."
         
         elif action == "search_web":
+            provider = CURRENT_CONFIG.get("search_provider", "duckduckgo")
+            if provider == "disabled":
+                return "SEARCH_DISABLED"
+            if self.interrupted.is_set():
+                return "SEARCH_CANCELLED"
+            if not isinstance(value, str) or not value.strip():
+                return "SEARCH_EMPTY"
+            if provider == "parallel":
+                try:
+                    return self.search_conversation.search(
+                        value, self.interrupted,
+                        timeout=CURRENT_CONFIG.get("search_timeout_seconds", 15),
+                    )
+                except SearchCancelled:
+                    return "SEARCH_CANCELLED"
+                except Exception as e:
+                    print(f"[SEARCH] Parallel search error: {e}", flush=True)
+                    return "SEARCH_ERROR"
+            if provider != "duckduckgo":
+                print(f"[SEARCH] Unknown search_provider: {provider}", flush=True)
+                return "SEARCH_ERROR"
             print(f"Searching web for: {value}...", flush=True)
             try:
                 # 'us-en' region is often more stable for CLI queries
@@ -811,6 +837,7 @@ class BotGUI:
     def chat_and_respond(self, text, img_path=None):
         if "forget everything" in text.lower() or "reset memory" in text.lower():
             self.session_memory = []
+            self.search_conversation = SearchConversation()
             self.permanent_memory = [{"role": "system", "content": SYSTEM_PROMPT}]
             self.save_chat_history()
             with self.tts_queue_lock: 
@@ -865,10 +892,18 @@ class BotGUI:
                         with self.tts_queue_lock: self.tts_queue.append(clean_sentence)
                     sentence_buffer = ""
 
+            if self.interrupted.is_set():
+                self.thinking_sound_active.clear()
+                return
+
             if is_action_mode:
                 action_data = self.extract_json_from_text(full_response_buffer)
                 if action_data:
                     tool_result = self.execute_action_and_get_result(action_data)
+
+                    if tool_result == "SEARCH_CANCELLED" or self.interrupted.is_set():
+                        self.thinking_sound_active.clear()
+                        return
 
                     if tool_result and tool_result.startswith("CHAT_FALLBACK::"):
                         chat_text = tool_result.split("::", 1)[1]
@@ -898,6 +933,14 @@ class BotGUI:
 
                     elif tool_result == "SEARCH_EMPTY":
                         fallback_text = "I searched, but I couldn't find any news about that."
+                        self.thinking_sound_active.clear()
+                        self.set_state(BotStates.SPEAKING, "Speaking...", cam_path=img_path)
+                        self.append_to_text("BOT: ", newline=False)
+                        self.append_to_text(fallback_text, newline=True)
+                        with self.tts_queue_lock: self.tts_queue.append(fallback_text)
+
+                    elif tool_result == "SEARCH_DISABLED":
+                        fallback_text = "Web search is disabled in my settings."
                         self.thinking_sound_active.clear()
                         self.set_state(BotStates.SPEAKING, "Speaking...", cam_path=img_path)
                         self.append_to_text("BOT: ", newline=False)

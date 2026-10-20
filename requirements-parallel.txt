@@ -1,0 +1,2 @@
+# Optional search provider; requires Python 3.10 or newer.
+mcp>=1.30,<2
