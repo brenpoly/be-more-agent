@@ -4,5 +4,7 @@ scipy
 openwakeword
 onnxruntime
 ollama
-duckduckgo-search
+ddgs
 Pillow
+opencv-python
+faster-whisper

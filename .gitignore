@@ -12,6 +12,10 @@ venv/
 # Ignore the Piper TTS folder (it's huge and OS-specific)
 piper/
 
+# Ignore Whisper.cpp engine + models
+whisper.cpp/
+voices/
+
 # Ignore large model files
 *.onnx
 *.bin
@@ -24,16 +28,14 @@ piper/
 # Keep chat history local (Privacy)
 memory.json
 chat_memory.json
-
-# Keep personal API keys or settings local
-# (Optional: comment this out if you WANT to share your config)
-# config.json
+current_image.jpg
 
 # --- Temporary/Generated Media ---
 *.wav
 *.mp3
 *.jpg
 *.png
+*.raw
 camera_capture.jpg
 current_image.jpg
 test_audio.wav
